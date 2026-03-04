@@ -71,6 +71,10 @@ void MX_SubGHz_Phy_Init(void)
   /* USER CODE END MX_SubGHz_Phy_Init_1_1 */
   SubghzApp_Init();
   /* USER CODE BEGIN MX_SubGHz_Phy_Init_2 */
+  /* UI App 초기화(Seq Task/Timer/UART RX 등) */
+  UI_Init();
+  ND_App_Init();
+
 
   /* USER CODE END MX_SubGHz_Phy_Init_2 */
 }

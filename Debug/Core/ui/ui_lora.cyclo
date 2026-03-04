@@ -1,0 +1,13 @@
+../Core/ui/ui_lora.c:45:13:apply_radio_config	1
+../Core/ui/ui_lora.c:29:6:UI_LORA_Init	1
+../Core/ui/ui_lora.c:43:6:UI_LORA_IsBusy	1
+../Core/ui/ui_lora.c:78:6:UI_LORA_Send	4
+../Core/ui/ui_lora.c:95:6:UI_LORA_StartRx	2
+../Core/ui/ui_lora.c:112:15:UI_LORA_FetchEvent	1
+../Core/ui/ui_lora.c:119:6:UI_LORA_FetchRx	7
+../Core/ui/ui_lora.c:138:6:UI_LORA_Process	2
+../Core/ui/ui_lora.c:148:6:UI_LORA_OnTxDoneFromISR	1
+../Core/ui/ui_lora.c:159:6:UI_LORA_OnTxTimeoutFromISR	1
+../Core/ui/ui_lora.c:169:6:UI_LORA_OnRxDoneFromISR	3
+../Core/ui/ui_lora.c:192:6:UI_LORA_OnRxTimeoutFromISR	1
+../Core/ui/ui_lora.c:202:6:UI_LORA_OnRxErrorFromISR	1

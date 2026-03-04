@@ -22,6 +22,7 @@
 #include "usart_if.h"
 
 /* USER CODE BEGIN Includes */
+extern void UI_UART_RxCpltCallback(UART_HandleTypeDef *huart);
 
 /* USER CODE END Includes */
 
@@ -234,7 +235,7 @@ void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart)
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
   /* USER CODE BEGIN HAL_UART_RxCpltCallback_1 */
-
+#if 0
   /* USER CODE END HAL_UART_RxCpltCallback_1 */
   if (huart->Instance == USART1)
   {
@@ -245,6 +246,8 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
     HAL_UART_Receive_IT(huart, &charRx, 1);
   }
   /* USER CODE BEGIN HAL_UART_RxCpltCallback_2 */
+#endif
+  UI_UART_RxCpltCallback(huart);
 
   /* USER CODE END HAL_UART_RxCpltCallback_2 */
 }

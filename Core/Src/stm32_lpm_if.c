@@ -92,25 +92,27 @@ void PWR_ExitOffMode(void)
 void PWR_EnterStopMode(void)
 {
   /* USER CODE BEGIN EnterStopMode_1 */
-
+	UI_LPM_BeforeStop_DeInitPeripherals();
+	UI_UART1_TxDma_DeInit();
   /* USER CODE END EnterStopMode_1 */
   HAL_SuspendTick();
   /* Clear Status Flag before entering STOP/STANDBY Mode */
   LL_PWR_ClearFlag_C1STOP_C1STB();
 
   /* USER CODE BEGIN EnterStopMode_2 */
-
+#if 0
   /* USER CODE END EnterStopMode_2 */
   HAL_PWREx_EnterSTOP2Mode(PWR_STOPENTRY_WFI);
   /* USER CODE BEGIN EnterStopMode_3 */
-
+#endif
+  HAL_PWREx_EnterSTOP1Mode(PWR_STOPENTRY_WFI);
   /* USER CODE END EnterStopMode_3 */
 }
 
 void PWR_ExitStopMode(void)
 {
   /* USER CODE BEGIN ExitStopMode_1 */
-
+#if 0
   /* USER CODE END ExitStopMode_1 */
   /* Resume sysTick : work around for debugger problem in dual core */
   HAL_ResumeTick();
@@ -122,7 +124,9 @@ void PWR_ExitStopMode(void)
   /* Resume not retained USARTx and DMA */
   vcom_Resume();
   /* USER CODE BEGIN ExitStopMode_2 */
-
+#endif
+  SystemClock_Config();
+  HAL_ResumeTick();
   /* USER CODE END ExitStopMode_2 */
 }
 

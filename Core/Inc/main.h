@@ -32,10 +32,25 @@ extern "C" {
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 
+#include "ui_core.h"
+#include "nd_app.h"
+#include "ui_lpm.h"
+extern void SystemClock_Config(void);
+
 /* USER CODE END Includes */
 
 /* Exported types ------------------------------------------------------------*/
 /* USER CODE BEGIN ET */
+extern ADC_HandleTypeDef hadc;
+
+extern RTC_HandleTypeDef hrtc;
+
+extern SPI_HandleTypeDef hspi1;
+
+extern SUBGHZ_HandleTypeDef hsubghz;
+
+extern UART_HandleTypeDef huart1;
+extern DMA_HandleTypeDef hdma_usart1_tx;
 
 /* USER CODE END ET */
 

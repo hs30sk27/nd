@@ -113,6 +113,7 @@ int main(void)
     MX_SubGHz_Phy_Process();
 
     /* USER CODE BEGIN 3 */
+
   }
   /* USER CODE END 3 */
 }

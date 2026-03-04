@@ -1,0 +1,6 @@
+../Core/ui/ui_cfg.c:8:6:UI_CFG_LoadDefaults	8	static
+../Core/ui/ui_cfg.c:35:17:UI_CFG_Get	0	static
+../Core/ui/ui_cfg.c:36:11:UI_CFG_GetMutable	0	static
+../Core/ui/ui_cfg.c:38:6:UI_CFG_Sanitize	0	static
+../Core/ui/ui_cfg.c:55:6:UI_CFG_SettingTo3	12	static
+../Core/ui/ui_cfg.c:69:6:UI_CFG_ParseSetting	16	static
