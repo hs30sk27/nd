@@ -153,25 +153,15 @@ void UI_BLE_Process(void)
         }
     }
 
-    /* (4) LED0 blink step */
+    /* (4) LED0 step
+     * 최신 요구:
+     * - BLE 시작 시 continuous blink 대신 1회 짧은 pulse만 사용
+     * - 리셋 blink(LED0+LED1 2회)와 구분되고 배터리 소모도 줄어든다. */
     if ((ev & BLE_EVT_LED_STEP) != 0u)
     {
-        if (s_ble_active)
-        {
-            /* toggle */
-            s_led_on = !s_led_on;
-            prv_hw_set_led0(s_led_on);
-
-            /* 다음 타이밍 예약 */
-            prv_led_schedule_next();
-        }
-        else
-        {
-            /* 비활성이면 LED 정리 */
-            s_led_on = false;
-            prv_hw_set_led0(false);
-            (void)UTIL_TIMER_Stop(&s_tmr_led);
-        }
+        s_led_on = false;
+        prv_hw_set_led0(false);
+        (void)UTIL_TIMER_Stop(&s_tmr_led);
     }
 }
 
@@ -231,10 +221,12 @@ void UI_BLE_EnableForMs(uint32_t duration_ms)
         (void)UTIL_TIMER_SetPeriod(&s_tmr_uart_init, UI_BLE_UART_INIT_DELAY_MS);
         (void)UTIL_TIMER_Start(&s_tmr_uart_init);
 
-        /* LED blink 시작: ON(10ms) -> OFF(490ms) ... */
+        /* 저전력/오해 방지: BLE 시작 시 LED0은 짧게 1회만 켠다. */
         s_led_on = true;
         prv_hw_set_led0(true);
-        prv_led_schedule_next();
+        (void)UTIL_TIMER_Stop(&s_tmr_led);
+        (void)UTIL_TIMER_SetPeriod(&s_tmr_led, UI_LED0_ON_MS);
+        (void)UTIL_TIMER_Start(&s_tmr_led);
     }
 
     /* timeout 재설정(현재 시점부터 duration_ms) */

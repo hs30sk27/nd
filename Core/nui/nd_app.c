@@ -85,6 +85,8 @@ static uint8_t s_node_tx_payload[UI_NODE_PAYLOAD_LEN];
 static uint32_t s_last_sensor_slot_id = 0xFFFFFFFFu;
 static uint32_t s_last_tx_slot_id = 0xFFFFFFFFu;
 
+#define ND_TX_IN_SLOT_DELAY_MS            (200u)
+
 /* 부팅 후 초기 6분은 6초 RX window를 반복해서 beacon 시간을 맞춘다. */
 #define ND_BOOT_RX_WINDOW_MS              (6000u)
 /*
@@ -358,12 +360,10 @@ static void prv_schedule_sensor_and_tx(void);
 
 static uint32_t prv_get_tx_base_offset_sec(void)
 {
-    if (s_test_mode || prv_is_two_minute_mode_active())
-    {
-        return 30u;
-    }
-
-    return 60u;
+    /* 최신 요구:
+     * - 1M / 2M / normal 모두 ND 데이터 송신 시작은 +30초 기준
+     * - 노드 번호별 2초 slot만 다르고, 같은 cycle 안에서는 같은 hop 주파수를 사용한다. */
+    return 30u;
 }
 
 static uint32_t prv_periodic_slot_id_from_epoch_sec(uint32_t epoch_sec, uint32_t period_sec, uint32_t offset_sec)
@@ -909,9 +909,9 @@ static void prv_schedule_sensor_and_tx(void)
     }
 
     /* TX offset:
-     *  - 01M test mode: 기존 30초 슬롯 유지
+     *  - 01M test mode: +30초부터 node별 2초 슬롯 송신
      *  - 02M mode     : +30초부터 node별 2초 슬롯 송신
-     *  - normal mode  : 설정 주기 +01분부터 node별 2초 슬롯 송신 */
+     *  - normal mode  : 설정 주기 기준 +30초부터 node별 2초 슬롯 송신 */
     uint32_t tx_off = base_tx + (uint32_t)node * 2u;
 
     uint64_t next_sensor = prv_next_event_centi(now, period, sensor_off);
@@ -924,6 +924,10 @@ static void prv_schedule_sensor_and_tx(void)
     /* 센서/송신 예약 */
     uint32_t ds_ms = (uint32_t)((next_sensor > now) ? ((next_sensor - now) * 10u) : 1u);
     uint32_t dt_ms = (uint32_t)((next_tx > now) ? ((next_tx - now) * 10u) : 1u);
+
+    /* slot 경계 정각 전송은 타이머/재arm 지터에 약하다.
+     * 전송을 slot 안쪽으로 200ms 넣어서 GW RX slot 중앙에서 수신되게 한다. */
+    dt_ms += ND_TX_IN_SLOT_DELAY_MS;
 
     (void)UTIL_TIMER_Stop(&s_tmr_sensor_sched);
     (void)UTIL_TIMER_SetPeriod(&s_tmr_sensor_sched, ds_ms);
