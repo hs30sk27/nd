@@ -1,8 +1,0 @@
-../Drivers/STM32WLxx_HAL_Driver/Src/stm32wlxx_hal_adc_ex.c:102:19:HAL_ADCEx_Calibration_Start	12
-../Drivers/STM32WLxx_HAL_Driver/Src/stm32wlxx_hal_adc_ex.c:248:10:HAL_ADCEx_Calibration_GetValue	1
-../Drivers/STM32WLxx_HAL_Driver/Src/stm32wlxx_hal_adc_ex.c:264:19:HAL_ADCEx_Calibration_SetValue	4
-../Drivers/STM32WLxx_HAL_Driver/Src/stm32wlxx_hal_adc_ex.c:307:13:HAL_ADCEx_LevelOutOfWindow2Callback	1
-../Drivers/STM32WLxx_HAL_Driver/Src/stm32wlxx_hal_adc_ex.c:322:13:HAL_ADCEx_LevelOutOfWindow3Callback	1
-../Drivers/STM32WLxx_HAL_Driver/Src/stm32wlxx_hal_adc_ex.c:338:13:HAL_ADCEx_EndOfSamplingCallback	1
-../Drivers/STM32WLxx_HAL_Driver/Src/stm32wlxx_hal_adc_ex.c:353:13:HAL_ADCEx_ChannelConfigReadyCallback	1
-../Drivers/STM32WLxx_HAL_Driver/Src/stm32wlxx_hal_adc_ex.c:376:19:HAL_ADCEx_DisableVoltageRegulator	2

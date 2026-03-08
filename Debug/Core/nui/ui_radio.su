@@ -1,5 +1,0 @@
-../Core/nui/ui_radio.c:49:13:prv_prepare_common	16	static
-../Core/nui/ui_radio.c:77:6:UI_Radio_PrepareTx	56	static
-../Core/nui/ui_radio.c:103:6:UI_Radio_PrepareRx	56	static
-../Core/nui/ui_radio.c:130:6:UI_Radio_MarkRecoverNeeded	0	static
-../Core/nui/ui_radio.c:135:6:UI_Radio_ClearRecoverNeeded	0	static

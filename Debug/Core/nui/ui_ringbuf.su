@@ -1,4 +1,0 @@
-../Core/nui/ui_ringbuf.c:3:6:UI_RingBuf_Init	0	static
-../Core/nui/ui_ringbuf.c:18:6:UI_RingBuf_Push	8	static
-../Core/nui/ui_ringbuf.c:31:6:UI_RingBuf_Pop	0	static
-../Core/nui/ui_ringbuf.c:40:10:UI_RingBuf_Count	0	static

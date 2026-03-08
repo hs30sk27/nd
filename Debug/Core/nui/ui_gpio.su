@@ -1,6 +1,0 @@
-../Core/nui/ui_gpio.c:66:6:UI_GPIO_Init	8	static
-../Core/nui/ui_gpio.c:79:6:UI_GPIO_ExtiCallback	8	static
-../Core/nui/ui_gpio.c:128:10:UI_GPIO_FetchEvents	0	static
-../Core/nui/ui_gpio.c:135:6:UI_GPIO_ClearEvents	0	static
-../Core/nui/ui_gpio.c:140:10:UI_GPIO_GetPulseCount	0	static
-../Core/nui/ui_gpio.c:145:6:UI_GPIO_ResetPulseCount	0	static

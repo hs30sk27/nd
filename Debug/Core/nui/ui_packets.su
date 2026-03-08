@@ -1,4 +1,0 @@
-../Core/nui/ui_packets.c:32:9:UI_Pkt_BuildBeacon	16	static
-../Core/nui/ui_packets.c:59:6:UI_Pkt_ParseBeacon	16	static
-../Core/nui/ui_packets.c:84:9:UI_Pkt_BuildNodeData	16	static
-../Core/nui/ui_packets.c:109:6:UI_Pkt_ParseNodeData	16	static
