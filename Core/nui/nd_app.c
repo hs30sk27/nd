@@ -79,11 +79,11 @@ static uint32_t s_last_sensor_slot_id = 0xFFFFFFFFu;
 static uint32_t s_last_tx_slot_id = 0xFFFFFFFFu;
 static uint32_t s_tx_inflight_slot_id = 0xFFFFFFFFu;
 
-#define ND_TX_IN_SLOT_DELAY_MS            (250u)
-#define ND_TX_SLOT0_EXTRA_DELAY_MS        (750u)
+#define ND_TX_IN_SLOT_DELAY_MS            (350u)
+#define ND_TX_SLOT0_EXTRA_DELAY_MS        (1050u)
 #define ND_TX_DUE_LATE_GRACE_CENTI        ((UI_SLOT_DURATION_MS / 10u) - 10u)
-#define ND_TX_RETRY_DELAY_MS              (60u)
-#define ND_TX_RETRY_GUARD_MS              (80u)
+#define ND_TX_RETRY_DELAY_MS              (80u)
+#define ND_TX_RETRY_GUARD_MS              (100u)
 #define ND_BOOT_RX_WINDOW_MS              (6000u)
 #define ND_BEACON_EARLY_WAKE_MS           (1000u)
 #define ND_BEACON_EARLY_WAKE_MS_2M        (500u)
@@ -166,6 +166,9 @@ static void prv_led0(bool on)
 
 static void prv_led1(bool on)
 {
+    if (UI_BLE_IsActive()) {
+        return;
+    }
 #if UI_HAVE_LED1
     HAL_GPIO_WritePin(LED1_GPIO_Port, LED1_Pin, on ? GPIO_PIN_SET : GPIO_PIN_RESET);
 #else
@@ -1018,7 +1021,9 @@ void UI_Hook_OnOpKeyPressed(void)
                    ts, (int)r.x, (int)r.y, (int)r.z,
                    (unsigned)r.adc, (unsigned long)pulse);
     UI_UART_SendString(msg);
-    prv_led1(false);
+    if (!UI_BLE_IsActive()) {
+        prv_led1(false);
+    }
 }
 
 void ND_App_Process(void)
@@ -1260,7 +1265,6 @@ void ND_Radio_OnTxDone(void)
         s_tx_inflight_slot_id = 0xFFFFFFFFu;
     }
     UI_LPM_UnlockStop();
-    prv_schedule_sensor_and_tx();
     UTIL_SEQ_SetTask(UI_TASK_BIT_ND_MAIN, 0);
 }
 

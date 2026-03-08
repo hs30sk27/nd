@@ -200,12 +200,12 @@ void UI_BLE_EnableForMs(uint32_t duration_ms)
         (void)UTIL_TIMER_Stop(&s_tmr_uart_init);
         (void)UTIL_TIMER_SetPeriod(&s_tmr_uart_init, UI_BLE_UART_INIT_DELAY_MS);
         (void)UTIL_TIMER_Start(&s_tmr_uart_init);
-
-        /* LED blink 시작: ON(10ms) -> OFF(490ms) ... */
-        s_led_on = true;
-        prv_hw_set_leds(true);
-        prv_led_schedule_next();
     }
+
+    /* LED blink는 재호출 때도 항상 다시 arm해서 10/490ms 패턴이 끊기지 않게 한다. */
+    s_led_on = true;
+    prv_hw_set_leds(true);
+    prv_led_schedule_next();
 
     (void)UTIL_TIMER_Stop(&s_tmr_timeout);
     (void)UTIL_TIMER_SetPeriod(&s_tmr_timeout, duration_ms);

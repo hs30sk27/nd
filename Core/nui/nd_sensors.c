@@ -66,6 +66,14 @@ extern void MX_SPI1_Init(void);
 #define UI_NODE_TEMP_SUSPECT_HIGH_C ((int8_t)85)
 #endif
 
+#ifndef UI_NODE_TEMP_GW_STYLE_RETRY_COUNT
+#define UI_NODE_TEMP_GW_STYLE_RETRY_COUNT (3u)
+#endif
+
+#ifndef UI_NODE_TEMP_GW_STYLE_RETRY_DELAY_MS
+#define UI_NODE_TEMP_GW_STYLE_RETRY_DELAY_MS (5u)
+#endif
+
 static void prv_sort_u16(uint16_t *a, uint16_t n)
 {
     for (uint16_t i = 1; i < n; i++) {
@@ -375,24 +383,84 @@ static bool prv_temp_c_looks_suspicious(int8_t temp_c)
     return false;
 }
 
+static bool prv_read_vdd_mv_gw_style(uint16_t *out_vdd_mv)
+{
+#if defined(ADC_CHANNEL_VREFINT) && defined(__HAL_ADC_CALC_VREFANALOG_VOLTAGE)
+    uint16_t raw = 0u;
+
+    if ((out_vdd_mv == NULL) || !prv_adc_read(ADC_CHANNEL_VREFINT, UI_ADC_SAMPLINGTIME, &raw)) {
+        return false;
+    }
+
+    *out_vdd_mv = (uint16_t)__HAL_ADC_CALC_VREFANALOG_VOLTAGE(raw, ADC_RESOLUTION_12B);
+    return (*out_vdd_mv != 0u);
+#else
+    (void)out_vdd_mv;
+    return false;
+#endif
+}
+
+static bool prv_read_temp_x10_gw_style(uint16_t vdd_mv, int16_t *out_temp_x10)
+{
+#if defined(ADC_CHANNEL_TEMPSENSOR) && defined(__HAL_ADC_CALC_TEMPERATURE)
+    uint16_t samples[10];
+    uint16_t raw_mid;
+
+    if ((out_temp_x10 == NULL) || (vdd_mv == 0u)) {
+        return false;
+    }
+
+    for (uint32_t i = 0u; i < 10u; i++) {
+        if (!prv_adc_read(ADC_CHANNEL_TEMPSENSOR, UI_ADC_SAMPLINGTIME, &samples[i])) {
+            return false;
+        }
+        HAL_Delay(2u);
+    }
+
+    raw_mid = prv_trimmed_mean_u16(samples, 10u, 2u);
+    *out_temp_x10 = (int16_t)(__HAL_ADC_CALC_TEMPERATURE(vdd_mv, raw_mid, ADC_RESOLUTION_12B) * 10);
+    return true;
+#else
+    (void)vdd_mv;
+    (void)out_temp_x10;
+    return false;
+#endif
+}
+
 static bool prv_measure_internal_primary(uint16_t *out_vdd_x10, int8_t *out_temp_c)
 {
-    uint16_t vdd_mv;
-    int16_t temp_x10;
+    uint16_t vdd_mv = 0u;
+    int16_t temp_x10 = (int16_t)0xFFFFu;
+    int8_t temp_c = UI_NODE_TEMP_INVALID_C;
+    bool have_value = false;
 
     if ((out_vdd_x10 == NULL) || (out_temp_c == NULL)) {
         return false;
     }
 
-    vdd_mv = prv_read_vdd_mv_quick();
-    if (vdd_mv == 0u) {
-        return false;
+    for (uint32_t attempt = 0u; attempt < UI_NODE_TEMP_GW_STYLE_RETRY_COUNT; attempt++) {
+        if (!prv_read_vdd_mv_gw_style(&vdd_mv) || (vdd_mv == 0u)) {
+            HAL_Delay(UI_NODE_TEMP_GW_STYLE_RETRY_DELAY_MS);
+            continue;
+        }
+
+        *out_vdd_x10 = (uint16_t)((vdd_mv + 50u) / 100u);
+        if (!prv_read_temp_x10_gw_style(vdd_mv, &temp_x10)) {
+            HAL_Delay(UI_NODE_TEMP_GW_STYLE_RETRY_DELAY_MS);
+            continue;
+        }
+
+        temp_c = prv_apply_temp_offset_c(prv_temp_x10_to_temp_c(temp_x10));
+        *out_temp_c = temp_c;
+        have_value = (temp_c != UI_NODE_TEMP_INVALID_C);
+        if (have_value && !prv_temp_c_looks_suspicious(temp_c)) {
+            return true;
+        }
+
+        HAL_Delay(UI_NODE_TEMP_GW_STYLE_RETRY_DELAY_MS);
     }
 
-    *out_vdd_x10 = (uint16_t)((vdd_mv + 50u) / 100u);
-    temp_x10 = prv_read_temp_x10_quick(vdd_mv);
-    *out_temp_c = prv_apply_temp_offset_c(prv_temp_x10_to_temp_c(temp_x10));
-    return (*out_temp_c != UI_NODE_TEMP_INVALID_C);
+    return have_value;
 }
 
 static bool prv_measure_internal_fallback(uint16_t *out_vdd_x10, int8_t *out_temp_c)
@@ -571,8 +639,8 @@ bool ND_Sensors_MeasureAll(ND_SensorResult_t *out)
     out->adc = 0xFFFFu;
     out->pulse_cnt = UI_GPIO_GetPulseCount();
 
-    /* 내부 ADC는 GW와 같은 조건으로 외부 센서 전원 OFF 상태에서 먼저 읽는다. */
-    prv_set_adc_en(false);
+    /* 내부 ADC는 GW와 같은 조건으로 ADC_EN ON 상태에서 먼저 읽는다. */
+    prv_set_adc_en(true);
     HAL_Delay(UI_NODE_INTERNAL_SETTLE_DELAY_MS);
 
     internal_ok = prv_measure_internal_primary(&vdd_x10, &temp_c);
@@ -592,8 +660,7 @@ bool ND_Sensors_MeasureAll(ND_SensorResult_t *out)
     out->temp_c = temp_c;
 
 #if defined(ICM20948_CS_Pin) || defined(ADC_CS_Pin)
-    /* 외부 ADC/IMU는 내부 측정이 끝난 뒤 전원을 올리고 충분히 settle 시킨다. */
-    prv_set_adc_en(true);
+    /* 외부 ADC/IMU는 같은 ADC_EN 상태를 유지한 채 추가 settle만 준다. */
     HAL_Delay(UI_NODE_ADC_POWER_SETTLE_MS);
 #endif
 
