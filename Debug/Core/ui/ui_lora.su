@@ -1,0 +1,13 @@
+../Core/ui/ui_lora.c:45:13:apply_radio_config	64	static
+../Core/ui/ui_lora.c:29:6:UI_LORA_Init	0	static
+../Core/ui/ui_lora.c:43:6:UI_LORA_IsBusy	0	static
+../Core/ui/ui_lora.c:78:6:UI_LORA_Send	32	static
+../Core/ui/ui_lora.c:95:6:UI_LORA_StartRx	24	static
+../Core/ui/ui_lora.c:112:15:UI_LORA_FetchEvent	0	static
+../Core/ui/ui_lora.c:119:6:UI_LORA_FetchRx	24	static
+../Core/ui/ui_lora.c:138:6:UI_LORA_Process	0	static
+../Core/ui/ui_lora.c:148:6:UI_LORA_OnTxDoneFromISR	8	static
+../Core/ui/ui_lora.c:159:6:UI_LORA_OnTxTimeoutFromISR	8	static
+../Core/ui/ui_lora.c:169:6:UI_LORA_OnRxDoneFromISR	24	static
+../Core/ui/ui_lora.c:192:6:UI_LORA_OnRxTimeoutFromISR	8	static
+../Core/ui/ui_lora.c:202:6:UI_LORA_OnRxErrorFromISR	8	static

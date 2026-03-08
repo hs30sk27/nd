@@ -1,0 +1,3 @@
+../Core/ui/ui_app.c:25:13:tick1s_cb	0	static
+../Core/ui/ui_app.c:31:13:ui_task	16	static
+../Core/ui/ui_app.c:81:6:UI_App_Init	24	static

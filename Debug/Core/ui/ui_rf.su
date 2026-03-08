@@ -1,0 +1,3 @@
+../Core/ui/ui_rf.c:13:10:UI_RF_GetFreqByIndex	0	static
+../Core/ui/ui_rf.c:19:10:UI_RF_GetBeaconFreqHz	0	static
+../Core/ui/ui_rf.c:40:10:UI_RF_GetDataFreqHz	0	static

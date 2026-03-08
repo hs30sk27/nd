@@ -1,0 +1,12 @@
+../Core/nui/ui_config.c:124:13:prv_sanitize_cfg	12	static
+../Core/nui/ui_config.c:200:13:prv_load_from_flash	16	static
+../Core/nui/ui_config.c:214:20:UI_GetConfig	16	static
+../Core/nui/ui_config.c:225:6:UI_Config_Save	232	static
+../Core/nui/ui_config.c:282:6:UI_SetNetId	0	static
+../Core/nui/ui_config.c:287:6:UI_SetGwNum	0	static
+../Core/nui/ui_config.c:293:6:UI_SetMaxNodes	0	static
+../Core/nui/ui_config.c:300:6:UI_SetNodeNum	0	static
+../Core/nui/ui_config.c:306:6:UI_SetSetting	12	static
+../Core/nui/ui_config.c:316:6:UI_SetTcpIp	0	static
+../Core/nui/ui_config.c:322:6:UI_SetLocAscii	8	static
+../Core/nui/ui_config.c:334:13:UI_GetLocAscii	0	static
