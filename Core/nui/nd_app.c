@@ -105,26 +105,12 @@ static uint32_t s_last_tx_slot_id = 0xFFFFFFFFu;
 #define ND_SYNC_BKP_DR_CRC                (RTC_BKP_DR3)
 #define ND_RX_RETRY_DELAY_MS              (100u)
 
-#ifndef ND_INTERNAL_TEMP_COMP_C
-#define ND_INTERNAL_TEMP_COMP_C ((int8_t)-4)
-#endif
-
-static int8_t prv_apply_nd_internal_temp_comp(int8_t temp_c)
+static int8_t prv_get_nd_internal_temp_c(int8_t temp_c)
 {
-    int16_t v;
-
-    if (temp_c == UI_NODE_TEMP_INVALID_C) {
-        return UI_NODE_TEMP_INVALID_C;
-    }
-
-    v = (int16_t)temp_c + (int16_t)ND_INTERNAL_TEMP_COMP_C;
-    if (v < (int16_t)UI_NODE_TEMP_MIN_C) {
-        v = (int16_t)UI_NODE_TEMP_MIN_C;
-    }
-    if (v > (int16_t)UI_NODE_TEMP_MAX_C) {
-        v = (int16_t)UI_NODE_TEMP_MAX_C;
-    }
-    return (int8_t)v;
+    /* ND 내부 온도는 sensor layer 결과를 그대로 사용한다.
+     * 앱 레이어에서 추가 보정/클램프를 하면 측정 실패나 저온 값이
+     * -50°C로 눌려 보일 수 있으므로 여기서는 raw 결과만 전달한다. */
+    return temp_c;
 }
 
 static bool s_boot_listen_active = false;
@@ -872,7 +858,7 @@ void UI_Hook_OnOpKeyPressed(void)
 
     prv_led1(true);
     (void)ND_Sensors_MeasureAll(&r);
-    r.temp_c = prv_apply_nd_internal_temp_comp(r.temp_c);
+    r.temp_c = prv_get_nd_internal_temp_c(r.temp_c);
     UI_BLE_EnableForMs(UI_BLE_ACTIVE_MS);
     UI_Time_FormatNow(ts, sizeof(ts));
     pulse = r.pulse_cnt;
@@ -950,11 +936,11 @@ void ND_App_Process(void)
             return;
         }
         s_last_sensor_slot_id = sensor_slot_id;
-        s_sensor_ready = false;
-        (void)ND_Sensors_MeasureAll(&s_last_sensor);
-        s_last_sensor.temp_c = prv_apply_nd_internal_temp_comp(s_last_sensor.temp_c);
-        s_sensor_ready = true;
-        prv_led1_pulse_10ms();
+        s_sensor_ready = ND_Sensors_MeasureAll(&s_last_sensor);
+        if (s_sensor_ready) {
+            s_last_sensor.temp_c = prv_get_nd_internal_temp_c(s_last_sensor.temp_c);
+            prv_led1_pulse_10ms();
+        }
         return;
     }
 
