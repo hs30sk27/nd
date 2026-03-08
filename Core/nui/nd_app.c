@@ -79,6 +79,8 @@ static uint32_t s_last_sensor_slot_id = 0xFFFFFFFFu;
 static uint32_t s_last_tx_slot_id = 0xFFFFFFFFu;
 
 #define ND_TX_IN_SLOT_DELAY_MS            (200u)
+#define ND_TX_RETRY_DELAY_MS              (100u)
+#define ND_TX_RETRY_GUARD_MS              (100u)
 #define ND_BOOT_RX_WINDOW_MS              (6000u)
 #define ND_BEACON_EARLY_WAKE_MS           (1000u)
 #define ND_BEACON_EARLY_WAKE_MS_2M        (500u)
@@ -105,12 +107,26 @@ static uint32_t s_last_tx_slot_id = 0xFFFFFFFFu;
 #define ND_SYNC_BKP_DR_CRC                (RTC_BKP_DR3)
 #define ND_RX_RETRY_DELAY_MS              (100u)
 
-static int8_t prv_get_nd_internal_temp_c(int8_t temp_c)
+#ifndef ND_INTERNAL_TEMP_COMP_C
+#define ND_INTERNAL_TEMP_COMP_C ((int8_t)0)
+#endif
+
+static int8_t prv_apply_nd_internal_temp_comp(int8_t temp_c)
 {
-    /* ND 내부 온도는 sensor layer 결과를 그대로 사용한다.
-     * 앱 레이어에서 추가 보정/클램프를 하면 측정 실패나 저온 값이
-     * -50°C로 눌려 보일 수 있으므로 여기서는 raw 결과만 전달한다. */
-    return temp_c;
+    int16_t v;
+
+    if (temp_c == UI_NODE_TEMP_INVALID_C) {
+        return UI_NODE_TEMP_INVALID_C;
+    }
+
+    v = (int16_t)temp_c + (int16_t)ND_INTERNAL_TEMP_COMP_C;
+    if (v < (int16_t)UI_NODE_TEMP_MIN_C) {
+        v = (int16_t)UI_NODE_TEMP_MIN_C;
+    }
+    if (v > (int16_t)UI_NODE_TEMP_MAX_C) {
+        v = (int16_t)UI_NODE_TEMP_MAX_C;
+    }
+    return (int8_t)v;
 }
 
 static bool s_boot_listen_active = false;
@@ -637,6 +653,60 @@ static void prv_schedule_short_beacon_retry(void)
     (void)UTIL_TIMER_Start(&s_tmr_beacon_sched);
 }
 
+static uint32_t prv_get_tx_slot_remaining_ms(uint64_t now_centi, uint32_t period_sec, uint32_t tx_off_sec)
+{
+    uint32_t now_sec;
+    uint32_t tx_slot_id;
+    uint64_t slot_start_centi;
+    uint64_t slot_end_centi;
+
+    if (period_sec == 0u) {
+        return 0u;
+    }
+
+    now_sec = (uint32_t)(now_centi / 100u);
+    tx_slot_id = prv_periodic_slot_id_from_epoch_sec(now_sec, period_sec, tx_off_sec);
+    slot_start_centi = (((uint64_t)tx_slot_id * (uint64_t)period_sec) + (uint64_t)tx_off_sec) * 100u;
+    slot_end_centi = slot_start_centi + ((uint64_t)UI_SLOT_DURATION_MS / 10u);
+
+    if (slot_end_centi <= now_centi) {
+        return 0u;
+    }
+
+    return (uint32_t)((slot_end_centi - now_centi) * 10u);
+}
+
+static bool prv_schedule_short_tx_retry(uint32_t period_sec, uint32_t tx_off_sec)
+{
+    uint64_t now_centi = UI_Time_NowCenti2016();
+    uint32_t remain_ms = prv_get_tx_slot_remaining_ms(now_centi, period_sec, tx_off_sec);
+    uint32_t retry_ms = ND_TX_RETRY_DELAY_MS;
+
+    if (remain_ms <= ND_TX_RETRY_GUARD_MS) {
+        return false;
+    }
+
+    remain_ms -= ND_TX_RETRY_GUARD_MS;
+    if (retry_ms > remain_ms) {
+        retry_ms = remain_ms;
+    }
+    if (retry_ms == 0u) {
+        retry_ms = 1u;
+    }
+
+    (void)UTIL_TIMER_Stop(&s_tmr_tx_sched);
+    (void)UTIL_TIMER_SetPeriod(&s_tmr_tx_sched, retry_ms);
+    (void)UTIL_TIMER_Start(&s_tmr_tx_sched);
+    return true;
+}
+
+static void prv_reschedule_main_if_pending(void)
+{
+    if (s_evt_flags != 0u) {
+        UTIL_SEQ_SetTask(UI_TASK_BIT_ND_MAIN, 0);
+    }
+}
+
 static bool prv_start_beacon_rx(uint32_t window_ms, ND_RxReason_t reason)
 {
     if (s_state != ND_STATE_IDLE) {
@@ -858,7 +928,7 @@ void UI_Hook_OnOpKeyPressed(void)
 
     prv_led1(true);
     (void)ND_Sensors_MeasureAll(&r);
-    r.temp_c = prv_get_nd_internal_temp_c(r.temp_c);
+    r.temp_c = prv_apply_nd_internal_temp_comp(r.temp_c);
     UI_BLE_EnableForMs(UI_BLE_ACTIVE_MS);
     UI_Time_FormatNow(ts, sizeof(ts));
     pulse = r.pulse_cnt;
@@ -878,18 +948,20 @@ void ND_App_Process(void)
     UI_BLE_Process();
 
     uint32_t ev = s_evt_flags;
-    s_evt_flags = 0;
 
     if ((ev & ND_EVT_BOOT_LISTEN_START) != 0u) {
+        s_evt_flags &= ~ND_EVT_BOOT_LISTEN_START;
         if (!s_boot_listen_active) {
             prv_begin_boot_listen();
         } else {
             prv_continue_boot_listen_or_schedule();
         }
+        prv_reschedule_main_if_pending();
         return;
     }
 
     if ((ev & ND_EVT_BEACON_LISTEN_START) != 0u) {
+        s_evt_flags &= ~ND_EVT_BEACON_LISTEN_START;
         bool started = false;
         if (!UI_Time_IsValid()) {
             s_force_gw_phase_scan = true;
@@ -906,14 +978,18 @@ void ND_App_Process(void)
         if (!started) {
             prv_schedule_short_beacon_retry();
         }
+        prv_reschedule_main_if_pending();
         return;
     }
 
     if ((ev & ND_EVT_REMINDER_LISTEN_START) != 0u) {
+        s_evt_flags &= ~ND_EVT_REMINDER_LISTEN_START;
+        prv_reschedule_main_if_pending();
         return;
     }
 
     if ((ev & ND_EVT_SENSOR_START) != 0u) {
+        s_evt_flags &= ~ND_EVT_SENSOR_START;
         uint32_t now_sec;
         uint32_t period;
         uint32_t sensor_off;
@@ -921,6 +997,7 @@ void ND_App_Process(void)
 
         if (!s_runtime_enabled) {
             s_sensor_ready = false;
+            prv_reschedule_main_if_pending();
             return;
         }
 
@@ -933,18 +1010,21 @@ void ND_App_Process(void)
 
         sensor_slot_id = prv_periodic_slot_id_from_epoch_sec(now_sec, period, sensor_off);
         if (sensor_slot_id == s_last_sensor_slot_id) {
+            prv_reschedule_main_if_pending();
             return;
         }
         s_last_sensor_slot_id = sensor_slot_id;
         s_sensor_ready = ND_Sensors_MeasureAll(&s_last_sensor);
         if (s_sensor_ready) {
-            s_last_sensor.temp_c = prv_get_nd_internal_temp_c(s_last_sensor.temp_c);
+            s_last_sensor.temp_c = prv_apply_nd_internal_temp_comp(s_last_sensor.temp_c);
             prv_led1_pulse_10ms();
         }
+        prv_reschedule_main_if_pending();
         return;
     }
 
     if ((ev & ND_EVT_TX_START) != 0u) {
+        s_evt_flags &= ~ND_EVT_TX_START;
         const UI_Config_t *cfg;
         UI_NodeData_t nd;
         uint32_t now_sec;
@@ -952,20 +1032,32 @@ void ND_App_Process(void)
         uint32_t tx_off;
         uint32_t tx_slot_id;
         uint32_t freq_anchor_sec;
-
-        if (!s_runtime_enabled || !s_sensor_ready) {
-            return;
-        }
+        bool retry_scheduled;
 
         cfg = UI_GetConfig();
         now_sec = UI_Time_NowSec2016();
         period = s_test_mode ? 60u : prv_get_normal_cycle_sec();
         tx_off = prv_get_tx_base_offset_sec() + (uint32_t)cfg->node_num * 2u;
-        tx_slot_id = prv_periodic_slot_id_from_epoch_sec(now_sec, period, tx_off);
-        if (tx_slot_id == s_last_tx_slot_id) {
+
+        if (!s_runtime_enabled || !s_sensor_ready) {
+            prv_reschedule_main_if_pending();
             return;
         }
-        s_last_tx_slot_id = tx_slot_id;
+
+        tx_slot_id = prv_periodic_slot_id_from_epoch_sec(now_sec, period, tx_off);
+        if (tx_slot_id == s_last_tx_slot_id) {
+            prv_reschedule_main_if_pending();
+            return;
+        }
+
+        if (s_state != ND_STATE_IDLE) {
+            retry_scheduled = prv_schedule_short_tx_retry(period, tx_off);
+            if (!retry_scheduled) {
+                prv_schedule_sensor_and_tx();
+            }
+            prv_reschedule_main_if_pending();
+            return;
+        }
 
         memset(&nd, 0, sizeof(nd));
         nd.node_num = cfg->node_num;
@@ -981,18 +1073,30 @@ void ND_App_Process(void)
 
         (void)UI_Pkt_BuildNodeData(s_node_tx_payload, &nd);
         if (!prv_radio_ready_for_tx()) {
+            retry_scheduled = prv_schedule_short_tx_retry(period, tx_off);
+            if (!retry_scheduled) {
+                prv_schedule_sensor_and_tx();
+            }
+            prv_reschedule_main_if_pending();
             return;
         }
         if (!UI_Radio_PrepareTx(UI_NODE_PAYLOAD_LEN)) {
+            retry_scheduled = prv_schedule_short_tx_retry(period, tx_off);
+            if (!retry_scheduled) {
+                prv_schedule_sensor_and_tx();
+            }
+            prv_reschedule_main_if_pending();
             return;
         }
 
         freq_anchor_sec = prv_get_data_freq_anchor_sec(now_sec);
         UI_LPM_LockStop();
         s_state = ND_STATE_TX_DATA;
+        s_last_tx_slot_id = tx_slot_id;
         /* GW RX는 같은 cycle/time대에 공통 data frequency(3rd arg = 0u)를 사용한다. */
         Radio.SetChannel(UI_RF_GetDataFreqHz(freq_anchor_sec, period, 0u));
         Radio.Send(s_node_tx_payload, UI_NODE_PAYLOAD_LEN);
+        prv_reschedule_main_if_pending();
         return;
     }
 }
