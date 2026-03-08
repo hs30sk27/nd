@@ -51,11 +51,11 @@ extern void MX_SPI1_Init(void);
 #endif
 
 #ifndef UI_NODE_ADC_POWER_SETTLE_MS
-#define UI_NODE_ADC_POWER_SETTLE_MS (50u)
+#define UI_NODE_ADC_POWER_SETTLE_MS (120u)
 #endif
 
 #ifndef UI_NODE_LTC_WARMUP_DISCARD_COUNT
-#define UI_NODE_LTC_WARMUP_DISCARD_COUNT (2u)
+#define UI_NODE_LTC_WARMUP_DISCARD_COUNT (6u)
 #endif
 
 #ifndef UI_NODE_TEMP_SUSPECT_LOW_C
@@ -571,9 +571,9 @@ bool ND_Sensors_MeasureAll(ND_SensorResult_t *out)
     out->adc = 0xFFFFu;
     out->pulse_cnt = UI_GPIO_GetPulseCount();
 
-    /* GW와 같은 조건으로 내부 ADC를 먼저 안정화한다. */
-    prv_set_adc_en(true);
-    HAL_Delay(UI_NODE_ADC_POWER_SETTLE_MS);
+    /* 내부 ADC는 GW와 같은 조건으로 외부 센서 전원 OFF 상태에서 먼저 읽는다. */
+    prv_set_adc_en(false);
+    HAL_Delay(UI_NODE_INTERNAL_SETTLE_DELAY_MS);
 
     internal_ok = prv_measure_internal_primary(&vdd_x10, &temp_c);
     if ((!internal_ok) || prv_temp_c_looks_suspicious(temp_c)) {
@@ -590,6 +590,17 @@ bool ND_Sensors_MeasureAll(ND_SensorResult_t *out)
         out->batt_lvl = UI_NODE_BATT_LVL_NORMAL;
     }
     out->temp_c = temp_c;
+
+#if defined(ICM20948_CS_Pin) || defined(ADC_CS_Pin)
+    /* 외부 ADC/IMU는 내부 측정이 끝난 뒤 전원을 올리고 충분히 settle 시킨다. */
+    prv_set_adc_en(true);
+    HAL_Delay(UI_NODE_ADC_POWER_SETTLE_MS);
+#endif
+
+#if defined(ADC_CS_Pin)
+    /* 아날로그 샘플은 ICM SPI 트래픽 전에 먼저 읽어서 GW 쪽 값과 시간차를 줄인다. */
+    out->adc = prv_ltc_read_avg();
+#endif
 
 #if defined(ICM20948_CS_Pin)
     if (prv_icm_wakeup() && prv_icm_check_whoami()) {
@@ -616,11 +627,9 @@ bool ND_Sensors_MeasureAll(ND_SensorResult_t *out)
     }
 #endif
 
-#if defined(ADC_CS_Pin)
-    out->adc = prv_ltc_read_avg();
-#endif
-
+#if defined(ICM20948_CS_Pin) || defined(ADC_CS_Pin)
     prv_set_adc_en(false);
+#endif
 
 #if defined(HAL_ADC_MODULE_ENABLED)
     (void)HAL_ADC_DeInit(&hadc);
@@ -631,3 +640,4 @@ bool ND_Sensors_MeasureAll(ND_SensorResult_t *out)
 
     return true;
 }
+

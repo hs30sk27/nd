@@ -82,8 +82,8 @@ static uint32_t s_tx_inflight_slot_id = 0xFFFFFFFFu;
 #define ND_TX_IN_SLOT_DELAY_MS            (250u)
 #define ND_TX_SLOT0_EXTRA_DELAY_MS        (750u)
 #define ND_TX_DUE_LATE_GRACE_CENTI        ((UI_SLOT_DURATION_MS / 10u) - 10u)
-#define ND_TX_RETRY_DELAY_MS              (100u)
-#define ND_TX_RETRY_GUARD_MS              (100u)
+#define ND_TX_RETRY_DELAY_MS              (60u)
+#define ND_TX_RETRY_GUARD_MS              (80u)
 #define ND_BOOT_RX_WINDOW_MS              (6000u)
 #define ND_BEACON_EARLY_WAKE_MS           (1000u)
 #define ND_BEACON_EARLY_WAKE_MS_2M        (500u)
@@ -1260,6 +1260,8 @@ void ND_Radio_OnTxDone(void)
         s_tx_inflight_slot_id = 0xFFFFFFFFu;
     }
     UI_LPM_UnlockStop();
+    prv_schedule_sensor_and_tx();
+    UTIL_SEQ_SetTask(UI_TASK_BIT_ND_MAIN, 0);
 }
 
 void ND_Radio_OnTxTimeout(void)
@@ -1279,6 +1281,7 @@ void ND_Radio_OnTxTimeout(void)
     if (!retry_scheduled) {
         prv_schedule_sensor_and_tx();
     }
+    UTIL_SEQ_SetTask(UI_TASK_BIT_ND_MAIN, 0);
 }
 
 void ND_Radio_OnRxDone(uint8_t *payload, uint16_t size, int16_t rssi, int8_t snr)
