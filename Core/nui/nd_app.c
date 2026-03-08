@@ -105,6 +105,28 @@ static uint32_t s_last_tx_slot_id = 0xFFFFFFFFu;
 #define ND_SYNC_BKP_DR_CRC                (RTC_BKP_DR3)
 #define ND_RX_RETRY_DELAY_MS              (100u)
 
+#ifndef ND_INTERNAL_TEMP_COMP_C
+#define ND_INTERNAL_TEMP_COMP_C ((int8_t)-4)
+#endif
+
+static int8_t prv_apply_nd_internal_temp_comp(int8_t temp_c)
+{
+    int16_t v;
+
+    if (temp_c == UI_NODE_TEMP_INVALID_C) {
+        return UI_NODE_TEMP_INVALID_C;
+    }
+
+    v = (int16_t)temp_c + (int16_t)ND_INTERNAL_TEMP_COMP_C;
+    if (v < (int16_t)UI_NODE_TEMP_MIN_C) {
+        v = (int16_t)UI_NODE_TEMP_MIN_C;
+    }
+    if (v > (int16_t)UI_NODE_TEMP_MAX_C) {
+        v = (int16_t)UI_NODE_TEMP_MAX_C;
+    }
+    return (int8_t)v;
+}
+
 static bool s_boot_listen_active = false;
 static uint32_t s_boot_listen_deadline_ms = 0u;
 static uint32_t s_rx_window_deadline_ms = 0u;
@@ -850,6 +872,7 @@ void UI_Hook_OnOpKeyPressed(void)
 
     prv_led1(true);
     (void)ND_Sensors_MeasureAll(&r);
+    r.temp_c = prv_apply_nd_internal_temp_comp(r.temp_c);
     UI_BLE_EnableForMs(UI_BLE_ACTIVE_MS);
     UI_Time_FormatNow(ts, sizeof(ts));
     pulse = r.pulse_cnt;
@@ -865,6 +888,8 @@ void ND_App_Process(void)
     if (!s_inited) {
         return;
     }
+
+    UI_BLE_Process();
 
     uint32_t ev = s_evt_flags;
     s_evt_flags = 0;
@@ -927,6 +952,7 @@ void ND_App_Process(void)
         s_last_sensor_slot_id = sensor_slot_id;
         s_sensor_ready = false;
         (void)ND_Sensors_MeasureAll(&s_last_sensor);
+        s_last_sensor.temp_c = prv_apply_nd_internal_temp_comp(s_last_sensor.temp_c);
         s_sensor_ready = true;
         prv_led1_pulse_10ms();
         return;
@@ -978,7 +1004,8 @@ void ND_App_Process(void)
         freq_anchor_sec = prv_get_data_freq_anchor_sec(now_sec);
         UI_LPM_LockStop();
         s_state = ND_STATE_TX_DATA;
-        Radio.SetChannel(UI_RF_GetDataFreqHz(freq_anchor_sec, period, cfg->node_num));
+        /* GW RX는 같은 cycle/time대에 공통 data frequency(3rd arg = 0u)를 사용한다. */
+        Radio.SetChannel(UI_RF_GetDataFreqHz(freq_anchor_sec, period, 0u));
         Radio.Send(s_node_tx_payload, UI_NODE_PAYLOAD_LEN);
         return;
     }
@@ -1039,6 +1066,7 @@ void ND_Radio_OnRxDone(uint8_t *payload, uint16_t size, int16_t rssi, int8_t snr
 {
     UI_Beacon_t beacon;
     const UI_Config_t *cfg = UI_GetConfig();
+    uint64_t beacon_epoch_centi;
 
     (void)rssi;
     (void)snr;
@@ -1073,7 +1101,9 @@ void ND_Radio_OnRxDone(uint8_t *payload, uint16_t size, int16_t rssi, int8_t snr
         return;
     }
 
-    (void)ND_BEACON_RX_TIME_CORR_CENTI;
+    beacon_epoch_centi = ((uint64_t)UI_Time_Epoch2016_FromCalendar(&beacon.dt) * 100u) +
+                         (uint64_t)ND_BEACON_RX_TIME_CORR_CENTI;
+    UI_Time_SetEpochCenti2016(beacon_epoch_centi);
     prv_apply_setting_ascii(beacon.setting_ascii);
     s_beacon_cnt++;
     prv_enter_locked_from_beacon(&beacon);
