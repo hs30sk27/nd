@@ -1,0 +1,9 @@
+../Core/nui/nd_sensors.c:208:13:prv_adc_read_internal	4
+../Core/nui/nd_sensors.c:411:13:prv_icm_cs	1
+../Core/nui/nd_sensors.c:435:13:prv_icm_spi_write	1
+../Core/nui/nd_sensors.c:418:13:prv_icm_spi_read	3
+../Core/nui/nd_sensors.c:83:17:prv_trimmed_mean_u16.part.0	6
+../Core/nui/nd_sensors.c:248:13:prv_read_vdd_mv_filtered.constprop	5
+../Core/nui/nd_sensors.c:107:16:prv_trimmed_mean_i16.constprop	5
+../Core/nui/nd_sensors.c:542:6:ND_Sensors_Init	1
+../Core/nui/nd_sensors.c:547:6:ND_Sensors_MeasureAll	34

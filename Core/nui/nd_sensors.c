@@ -190,6 +190,11 @@ static bool prv_prepare_internal_adc_profile(void)
         }
     }
 
+    /* STM32WLE5 internal channels need ADC self-calibration after re-init. */
+    if (HAL_ADCEx_Calibration_Start(&hadc) != HAL_OK) {
+        return false;
+    }
+
     HAL_Delay(UI_ND_TEMP_STARTUP_DELAY_MS);
     return true;
 #else
@@ -583,11 +588,7 @@ bool ND_Sensors_MeasureAll(ND_SensorResult_t* out)
         out->batt_lvl = UI_NODE_BATT_LVL_NORMAL;
     }
 
-    /* 2) ADC_EN: ICM/LTC 전원 */
-    prv_set_adc_en(true);
-    HAL_Delay(10u);
-
-    /* 3) ICM20948 */
+    /* 2) ICM20948 */
 #if defined(ICM20948_CS_Pin)
     if (prv_icm_wakeup() && prv_icm_check_whoami()) {
         int16_t xs[UI_NODE_ICM_SAMPLE_COUNT];
@@ -617,8 +618,10 @@ bool ND_Sensors_MeasureAll(ND_SensorResult_t* out)
     }
 #endif
 
-    /* 4) LTC2450 */
+    /* 3) LTC2450 (ADC_EN is LTC2450 power only) */
 #if defined(ADC_CS_Pin)
+    prv_set_adc_en(true);
+    HAL_Delay(10u);
     out->adc = prv_ltc_read_avg();
 #endif
 

@@ -83,10 +83,9 @@ static uint32_t s_tx_inflight_slot_id = 0xFFFFFFFFu;
 
 #define ND_TX_IN_SLOT_DELAY_MS            (0u)
 #define ND_TX_SLOT0_EXTRA_DELAY_MS        (0u)
-/* 제시간 송신 우선: 300ms 이상 늦으면 같은 slot 송신을 포기하고 다음 cycle로 넘긴다. */
-#define ND_TX_DUE_LATE_GRACE_CENTI        (30u)
-#define ND_TX_RETRY_DELAY_MS              (80u)
-#define ND_TX_RETRY_GUARD_MS              (100u)
+#define ND_TX_DUE_LATE_GRACE_CENTI        ((UI_SLOT_DURATION_MS / 10u) - 10u)
+#define ND_TX_RETRY_DELAY_MS              (20u)
+#define ND_TX_RETRY_GUARD_MS              (20u)
 #define ND_TX_WATCHDOG_MS                (4000u)
 #define ND_BOOT_RX_WINDOW_MS              (6000u)
 #define ND_BEACON_EARLY_WAKE_MS           (1000u)
@@ -419,7 +418,7 @@ static uint32_t prv_get_tx_base_offset_sec(void)
 static uint32_t prv_get_tx_in_slot_delay_ms(uint8_t node_num)
 {
     (void)node_num;
-    return ND_TX_IN_SLOT_DELAY_MS;
+    return 0u;
 }
 
 static void prv_schedule_tx_event_at(uint64_t target_centi, uint8_t node_num)
@@ -1063,7 +1062,6 @@ void UI_Hook_OnOpKeyPressed(void)
 
     prv_led1(true);
     (void)ND_Sensors_MeasureAll(&r);
-    r.temp_c = prv_apply_nd_internal_temp_comp(r.temp_c);
     UI_BLE_EnableForMs(UI_BLE_ACTIVE_MS);
     UI_Time_FormatNow(ts, sizeof(ts));
     pulse = r.pulse_cnt;
@@ -1164,14 +1162,6 @@ void ND_App_Process(void)
             ND_SensorResult_t measured = s_last_sensor;
             bool measure_ok = ND_Sensors_MeasureAll(&measured);
             if (measure_ok) {
-                measured.temp_c = prv_apply_nd_internal_temp_comp(measured.temp_c);
-                if (((measured.temp_c == UI_NODE_TEMP_INVALID_C) ||
-                     (measured.temp_c <= UI_NODE_TEMP_MIN_C)) &&
-                    (s_sensor_ready) &&
-                    (s_last_sensor.temp_c != UI_NODE_TEMP_INVALID_C) &&
-                    (s_last_sensor.temp_c > UI_NODE_TEMP_MIN_C)) {
-                    measured.temp_c = s_last_sensor.temp_c;
-                }
                 s_last_sensor = measured;
                 s_sensor_ready = true;
                 prv_led1_pulse_10ms();
@@ -1185,6 +1175,7 @@ void ND_App_Process(void)
         s_evt_flags &= ~ND_EVT_TX_START;
         const UI_Config_t *cfg;
         UI_NodeData_t nd;
+        ND_SensorResult_t tx_sensor;
         uint64_t now_centi;
         uint64_t due_tx_centi;
         uint32_t now_sec;
@@ -1205,14 +1196,17 @@ void ND_App_Process(void)
             return;
         }
 
+        tx_sensor = s_last_sensor;
         if (!s_sensor_ready) {
-            retry_scheduled = prv_schedule_short_tx_retry(period, tx_off);
-            if (!retry_scheduled) {
-                prv_schedule_sensor_and_tx();
-            }
-            prv_reschedule_main_if_pending();
-            return;
+            memset(&tx_sensor, 0, sizeof(tx_sensor));
+            tx_sensor.batt_lvl = UI_NODE_BATT_LVL_INVALID;
+            tx_sensor.temp_c = UI_NODE_TEMP_INVALID_C;
+            tx_sensor.x = (int16_t)0xFFFFu;
+            tx_sensor.y = (int16_t)0xFFFFu;
+            tx_sensor.z = (int16_t)0xFFFFu;
+            tx_sensor.adc = 0xFFFFu;
         }
+        tx_sensor.pulse_cnt = UI_GPIO_GetPulseCount();
 
         if (!prv_is_event_due_now(now_centi, period, tx_off, ND_TX_DUE_LATE_GRACE_CENTI, &due_tx_centi)) {
             prv_schedule_tx_event_at(prv_next_event_centi(now_centi, period, tx_off), cfg->node_num);
@@ -1222,10 +1216,6 @@ void ND_App_Process(void)
 
         now_sec = (uint32_t)(due_tx_centi / 100u);
         tx_slot_id = prv_periodic_slot_id_from_epoch_sec(now_sec, period, tx_off);
-        if ((tx_slot_id == s_last_tx_slot_id) || (tx_slot_id == s_tx_inflight_slot_id)) {
-            prv_reschedule_main_if_pending();
-            return;
-        }
 
         if (s_state != ND_STATE_IDLE) {
             retry_scheduled = prv_schedule_short_tx_retry(period, tx_off);
@@ -1239,14 +1229,14 @@ void ND_App_Process(void)
         memset(&nd, 0, sizeof(nd));
         nd.node_num = cfg->node_num;
         memcpy(nd.net_id, cfg->net_id, UI_NET_ID_LEN);
-        nd.batt_lvl = s_last_sensor.batt_lvl;
-        nd.temp_c = s_last_sensor.temp_c;
+        nd.batt_lvl = tx_sensor.batt_lvl;
+        nd.temp_c = tx_sensor.temp_c;
         nd.beacon_cnt = s_beacon_cnt;
-        nd.x = s_last_sensor.x;
-        nd.y = s_last_sensor.y;
-        nd.z = s_last_sensor.z;
-        nd.adc = s_last_sensor.adc;
-        nd.pulse_cnt = s_last_sensor.pulse_cnt;
+        nd.x = tx_sensor.x;
+        nd.y = tx_sensor.y;
+        nd.z = tx_sensor.z;
+        nd.adc = tx_sensor.adc;
+        nd.pulse_cnt = tx_sensor.pulse_cnt;
 
         (void)UI_Pkt_BuildNodeData(s_node_tx_payload, &nd);
         if (!prv_radio_ready_for_tx()) {

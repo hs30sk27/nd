@@ -1,0 +1,8 @@
+../Core/nui/ui_lpm.c:111:6:UI_LPM_Init	1
+../Core/nui/ui_lpm.c:117:6:UI_LPM_LockStop	1
+../Core/nui/ui_lpm.c:123:6:UI_LPM_UnlockStop	3
+../Core/nui/ui_lpm.c:136:6:UI_LPM_IsStopLocked	1
+../Core/nui/ui_lpm.c:141:6:UI_UART1_TxDma_DeInit	1
+../Core/nui/ui_lpm.c:153:6:UI_LPM_BeforeStop_DeInitPeripherals	7
+../Core/nui/ui_lpm.c:189:6:UI_LPM_AfterStop_ReInitPeripherals	1
+../Core/nui/ui_lpm.c:202:6:UI_LPM_EnterStopNow	2

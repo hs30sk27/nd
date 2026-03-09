@@ -1,0 +1,4 @@
+../Core/ui/ui_proto.c:27:10:UI_PROTO_BuildBeaconFrame	2
+../Core/ui/ui_proto.c:59:6:UI_PROTO_ParseBeaconFrame	6
+../Core/ui/ui_proto.c:94:10:UI_PROTO_BuildNodeFrame	2
+../Core/ui/ui_proto.c:124:6:UI_PROTO_ParseNodeFrame	5
