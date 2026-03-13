@@ -58,6 +58,7 @@ static UTIL_TIMER_Object_t s_tmr_sensor_sched;
 static UTIL_TIMER_Object_t s_tmr_tx_sched;
 static UTIL_TIMER_Object_t s_tmr_tx_watchdog;
 static UTIL_TIMER_Object_t s_tmr_led1_pulse;
+static UTIL_TIMER_Object_t s_tmr_test_session;
 
 static volatile uint32_t s_evt_flags = 0;
 #define ND_EVT_BOOT_LISTEN_START      (1u << 0)
@@ -66,6 +67,7 @@ static volatile uint32_t s_evt_flags = 0;
 #define ND_EVT_TX_START               (1u << 3)
 #define ND_EVT_REMINDER_LISTEN_START  (1u << 4)
 #define ND_EVT_TX_RECOVER             (1u << 5)
+#define ND_EVT_TEST_SESSION_EXPIRE     (1u << 6)
 
 static bool s_beacon_ok = false;
 static uint16_t s_beacon_cnt = 0;
@@ -80,6 +82,9 @@ static uint8_t s_node_tx_payload[UI_NODE_PAYLOAD_LEN];
 static uint32_t s_last_sensor_slot_id = 0xFFFFFFFFu;
 static uint32_t s_last_tx_slot_id = 0xFFFFFFFFu;
 static uint32_t s_tx_inflight_slot_id = 0xFFFFFFFFu;
+static bool s_test_session_active = false;
+static uint8_t s_test_session_restore_value = 0u;
+static char s_test_session_restore_unit = 'H';
 
 #define ND_TX_IN_SLOT_DELAY_MS            (0u)
 #define ND_TX_SLOT0_EXTRA_DELAY_MS        (0u)
@@ -112,6 +117,7 @@ static uint32_t s_tx_inflight_slot_id = 0xFFFFFFFFu;
 #define ND_SYNC_BKP_DR_META               (RTC_BKP_DR2)
 #define ND_SYNC_BKP_DR_CRC                (RTC_BKP_DR3)
 #define ND_RX_RETRY_DELAY_MS              (100u)
+#define ND_TEST_SESSION_MS             (60u * 60u * 1000u)
 
 #ifndef ND_INTERNAL_TEMP_COMP_C
 #define ND_INTERNAL_TEMP_COMP_C ((int8_t)0)
@@ -144,6 +150,11 @@ static void prv_schedule_reminder_window(void);
 static void prv_schedule_sensor_and_tx(void);
 static void prv_continue_boot_listen_or_schedule(void);
 static void prv_enter_unsync_search(void);
+static void prv_refresh_mode_from_config(void);
+static bool prv_format_setting_ascii(uint8_t value, char unit, uint8_t out_setting_ascii[3]);
+static void prv_request_immediate_beacon_scan(void);
+static void prv_start_test_session_from_cmd(void);
+static void prv_stop_test_session(void);
 
 static bool s_boot_listen_active = false;
 static uint32_t s_boot_listen_deadline_ms = 0u;
@@ -281,6 +292,13 @@ static void prv_tmr_tx_watchdog_cb(void *context)
     UTIL_SEQ_SetTask(UI_TASK_BIT_ND_MAIN, 0);
 }
 
+static void prv_tmr_test_session_cb(void *context)
+{
+    (void)context;
+    s_evt_flags |= ND_EVT_TEST_SESSION_EXPIRE;
+    UTIL_SEQ_SetTask(UI_TASK_BIT_ND_MAIN, 0);
+}
+
 static void prv_stop_tx_watchdog(void)
 {
     (void)UTIL_TIMER_Stop(&s_tmr_tx_watchdog);
@@ -318,6 +336,64 @@ static void prv_force_tx_recovery(bool keep_last_slot)
     s_tx_inflight_slot_id = 0xFFFFFFFFu;
     UI_LPM_UnlockStop();
     prv_refresh_runtime_timers_after_tx();
+}
+
+static bool prv_format_setting_ascii(uint8_t value, char unit, uint8_t out_setting_ascii[3])
+{
+    if (out_setting_ascii == NULL) {
+        return false;
+    }
+    if ((value > 99u) || ((unit != 'M') && (unit != 'H'))) {
+        return false;
+    }
+
+    out_setting_ascii[0] = (uint8_t)('0' + ((value / 10u) % 10u));
+    out_setting_ascii[1] = (uint8_t)('0' + (value % 10u));
+    out_setting_ascii[2] = (uint8_t)unit;
+    return true;
+}
+
+static void prv_request_immediate_beacon_scan(void)
+{
+    s_force_gw_phase_scan = true;
+    s_evt_flags |= ND_EVT_BEACON_LISTEN_START;
+    UTIL_SEQ_SetTask(UI_TASK_BIT_ND_MAIN, 0);
+}
+
+static void prv_start_test_session_from_cmd(void)
+{
+    const UI_Config_t *cfg = UI_GetConfig();
+
+    if (!s_test_session_active && (cfg != NULL)) {
+        s_test_session_restore_value = cfg->setting_value;
+        s_test_session_restore_unit = cfg->setting_unit;
+    }
+
+    s_test_session_active = true;
+    (void)UTIL_TIMER_Stop(&s_tmr_test_session);
+    (void)UTIL_TIMER_SetPeriod(&s_tmr_test_session, ND_TEST_SESSION_MS);
+    (void)UTIL_TIMER_Start(&s_tmr_test_session);
+
+    /* TEST START 직후에는 저장 없이 임시 1H로 두고, 실제 주기는 beacon setting을 따른다. */
+    UI_SetSetting(1u, 'H');
+    prv_refresh_mode_from_config();
+    prv_request_immediate_beacon_scan();
+}
+
+static void prv_stop_test_session(void)
+{
+    if (!s_test_session_active) {
+        return;
+    }
+
+    s_test_session_active = false;
+    (void)UTIL_TIMER_Stop(&s_tmr_test_session);
+    UI_SetSetting(s_test_session_restore_value, s_test_session_restore_unit);
+    prv_refresh_mode_from_config();
+
+    if (s_state == ND_STATE_IDLE) {
+        prv_continue_boot_listen_or_schedule();
+    }
 }
 
 static void prv_apply_setting_ascii(const uint8_t setting_ascii[3])
@@ -628,6 +704,7 @@ static void prv_save_sync_anchor_from_beacon(const UI_Beacon_t *beacon)
     uint32_t meta;
     uint16_t crc;
     const UI_Config_t *cfg;
+    uint8_t persist_setting_ascii[3];
 
     if (beacon == NULL) {
         return;
@@ -635,7 +712,14 @@ static void prv_save_sync_anchor_from_beacon(const UI_Beacon_t *beacon)
 
     cfg = UI_GetConfig();
     epoch_sec = UI_Time_Epoch2016_FromCalendar(&beacon->dt);
-    meta = prv_pack_sync_meta(beacon->setting_ascii);
+    if (s_test_session_active) {
+        if (!prv_format_setting_ascii(s_test_session_restore_value, s_test_session_restore_unit, persist_setting_ascii)) {
+            return;
+        }
+        meta = prv_pack_sync_meta(persist_setting_ascii);
+    } else {
+        meta = prv_pack_sync_meta(beacon->setting_ascii);
+    }
     crc = prv_calc_sync_anchor_crc(epoch_sec, meta, cfg->net_id);
 
     HAL_PWR_EnableBkUpAccess();
@@ -1117,6 +1201,7 @@ bool UI_Hook_OnTestStartRequested(void)
 
     prv_led1(true);
     UI_BLE_EnableForMs(UI_BLE_ACTIVE_MS);
+    prv_start_test_session_from_cmd();
     measure_ok = ND_Sensors_MeasureAll(&r);
     if (measure_ok) {
         prv_send_test_result_ble(&r);
@@ -1136,6 +1221,13 @@ void ND_App_Process(void)
     UI_BLE_Process();
 
     uint32_t ev = s_evt_flags;
+
+    if ((ev & ND_EVT_TEST_SESSION_EXPIRE) != 0u) {
+        s_evt_flags &= ~ND_EVT_TEST_SESSION_EXPIRE;
+        prv_stop_test_session();
+        prv_reschedule_main_if_pending();
+        return;
+    }
 
     if ((ev & ND_EVT_BOOT_LISTEN_START) != 0u) {
         s_evt_flags &= ~ND_EVT_BOOT_LISTEN_START;
@@ -1346,6 +1438,7 @@ void ND_App_Init(void)
     UTIL_TIMER_Create(&s_tmr_tx_sched, 0u, UTIL_TIMER_ONESHOT, prv_tmr_tx_cb, NULL);
     UTIL_TIMER_Create(&s_tmr_tx_watchdog, ND_TX_WATCHDOG_MS, UTIL_TIMER_ONESHOT, prv_tmr_tx_watchdog_cb, NULL);
     UTIL_TIMER_Create(&s_tmr_led1_pulse, 10u, UTIL_TIMER_ONESHOT, prv_led1_pulse_off_cb, NULL);
+    UTIL_TIMER_Create(&s_tmr_test_session, ND_TEST_SESSION_MS, UTIL_TIMER_ONESHOT, prv_tmr_test_session_cb, NULL);
 
     s_state = ND_STATE_IDLE;
     s_beacon_ok = false;
@@ -1357,6 +1450,9 @@ void ND_App_Init(void)
     s_last_sensor_slot_id = 0xFFFFFFFFu;
     s_last_tx_slot_id = 0xFFFFFFFFu;
     s_tx_inflight_slot_id = 0xFFFFFFFFu;
+    s_test_session_active = false;
+    s_test_session_restore_value = 0u;
+    s_test_session_restore_unit = 'H';
     s_force_gw_phase_scan = false;
     s_gw_phase_scan_cycle_count = 0u;
     s_boot_listen_active = false;
