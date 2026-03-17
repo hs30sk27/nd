@@ -450,7 +450,7 @@ void MX_GPIO_Init(void)
   /*Configure GPIO pin : ICM20948_INT_Pin */
   GPIO_InitStruct.Pin = ICM20948_INT_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
   HAL_GPIO_Init(ICM20948_INT_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pins : OP_KEY_Pin PULSE_IN_Pin TEST_KEY_Pin */
@@ -485,6 +485,12 @@ void MX_GPIO_Init(void)
   GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOH, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : TH_Pin */
+  GPIO_InitStruct.Pin = TH_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(TH_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pin : BT_EN_Pin */
   GPIO_InitStruct.Pin = BT_EN_Pin;

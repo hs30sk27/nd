@@ -99,6 +99,7 @@ void PWR_EnterStopMode(void)
 	HAL_GPIO_WritePin(ICM20948_CS_GPIO_Port, ICM20948_CS_Pin, GPIO_PIN_RESET);
 
 	HAL_GPIO_WritePin(ADC_CS_GPIO_Port, ADC_CS_Pin, GPIO_PIN_RESET);
+	HAL_GPIO_WritePin(ADC_EN_GPIO_Port, ADC_EN_Pin, GPIO_PIN_RESET);
 
 
 	__HAL_RCC_USART1_CLK_DISABLE();
@@ -116,7 +117,9 @@ void PWR_EnterStopMode(void)
   HAL_PWREx_EnterSTOP2Mode(PWR_STOPENTRY_WFI);
   /* USER CODE BEGIN EnterStopMode_3 */
 #endif
+#if 1
   HAL_PWREx_EnterSTOP1Mode(PWR_STOPENTRY_WFI);
+#endif
   /* USER CODE END EnterStopMode_3 */
 }
 

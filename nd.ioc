@@ -1,6 +1,6 @@
 #MicroXplorer Configuration settings - do not modify
 ADC.ClockPrescaler=ADC_CLOCK_ASYNC_DIV64
-ADC.IPParameters=NbrOfConversion,SelectedChannel,ClockPrescaler,SamplingTimeCommon1,SamplingTimeCommon2
+ADC.IPParameters=NbrOfConversion,ClockPrescaler,SamplingTimeCommon1,SamplingTimeCommon2,SelectedChannel
 ADC.NbrOfConversion=1
 ADC.SamplingTimeCommon1=ADC_SAMPLETIME_19CYCLES_5
 ADC.SamplingTimeCommon2=ADC_SAMPLETIME_19CYCLES_5
@@ -118,8 +118,9 @@ NVIC.USART1_IRQn=true\:0\:0\:false\:false\:true\:true\:true\:true
 NVIC.UsageFault_IRQn=true\:0\:0\:false\:false\:true\:false\:false\:false
 OSC_IN.Mode=HSE-TCXO
 OSC_IN.Signal=RCC_OSC_IN
-PA0.GPIOParameters=GPIO_Label
+PA0.GPIOParameters=GPIO_PuPd,GPIO_Label
 PA0.GPIO_Label=ICM20948_INT
+PA0.GPIO_PuPd=GPIO_PULLUP
 PA0.Locked=true
 PA0.Signal=GPXTI0
 PA1.GPIOParameters=GPIO_PuPd,GPIO_Label,GPIO_ModeDefaultEXTI
@@ -186,7 +187,7 @@ PB12.Signal=GPIO_Output
 PB2.GPIOParameters=GPIO_Label
 PB2.GPIO_Label=TH
 PB2.Locked=true
-PB2.Signal=ADC_IN4
+PB2.Signal=GPIO_Analog
 PB3.Mode=Full_Duplex_Master
 PB3.Signal=SPI1_SCK
 PB4.Mode=Full_Duplex_Master
