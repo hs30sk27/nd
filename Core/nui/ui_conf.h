@@ -136,7 +136,7 @@
 /* -------------------------------------------------------------------------- */
 /* Node/Gateway 공통 파라미터                                                 */
 /* -------------------------------------------------------------------------- */
-#define UI_NET_ID_LEN                (10u)
+#define UI_NET_ID_LEN                (24u)    /* UTF-8 한글+숫자 NETID 지원 */
 #define UI_MAX_NODES                 (50u)
 #define UI_TESTMODE_MAX_NODES        (10u)     /* 테스트 모드에서 노드 수 제한 */
 #define UI_LOC_ASCII_MAX             (160u)    /* GW LOC ASCII 저장 최대 길이(널 포함) */

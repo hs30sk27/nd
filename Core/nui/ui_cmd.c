@@ -106,6 +106,20 @@ static bool prv_cmd_equals_relaxed(const char* s, const char* base)
 }
 
 
+static size_t prv_netid_copy_padded(uint8_t out[UI_NET_ID_LEN], const char* id)
+{
+    size_t len = (id != NULL) ? strlen(id) : 0u;
+
+    if ((len == 0u) || (len > UI_NET_ID_LEN))
+    {
+        return 0u;
+    }
+
+    memset(out, 0, UI_NET_ID_LEN);
+    memcpy(out, id, len);
+    return len;
+}
+
 static bool prv_commit_config_changed(void)
 {
     if (!UI_Config_Save())
@@ -226,21 +240,18 @@ void UI_Cmd_ProcessLine(const char* line_in)
         return;
     }
 
-    /* -------------------- NETID:XXXXXXXXXX -------------- */
+    /* -------------------- NETID:UTF8/ASCII -------------- */
     if (strncmp(p, "NETID:", 6) == 0)
     {
         const char* id = p + 6;
-        if (strlen(id) < UI_NET_ID_LEN)
+        uint8_t net_id[UI_NET_ID_LEN];
+
+        if (prv_netid_copy_padded(net_id, id) == 0u)
         {
             prv_send_error();
             return;
         }
 
-        uint8_t net_id[UI_NET_ID_LEN];
-        for (uint32_t i = 0; i < UI_NET_ID_LEN; i++)
-        {
-            net_id[i] = (uint8_t)id[i];
-        }
         UI_SetNetId(net_id);
         (void)prv_commit_config_changed();
         return;

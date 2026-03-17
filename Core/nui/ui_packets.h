@@ -6,14 +6,14 @@
  * 요구사항에서 명시된 payload 구성 그대로 구현:
  *
  * [BEACON]
- *  - NETID 10 bytes
+ *  - NETID UI_NET_ID_LEN bytes (UTF-8 raw bytes)
  *  - TIME  6 bytes (YY,MM,DD,hh,mm,ss)
  *  - TEST  3 bytes ("01M" 같은 SETTING ASCII)
  *  - CRC16 2 bytes (CCITT)
  *
  * [NODE DATA]
  *  - NODE_NUM 1 byte
- *  - NETID    10 bytes
+ *  - NETID    UI_NET_ID_LEN bytes (UTF-8 raw bytes)
  *  - BATT     uint8  (1=normal, 0=low)
  *  - TEMP     int8   ('C) range -50..100
  *  - BCN_CNT  uint16
@@ -35,8 +35,8 @@
 extern "C" {
 #endif
 
-#define UI_BEACON_PAYLOAD_LEN   (21u)
-#define UI_NODE_PAYLOAD_LEN     (29u)
+#define UI_BEACON_PAYLOAD_LEN   (UI_NET_ID_LEN + 11u)
+#define UI_NODE_PAYLOAD_LEN     (UI_NET_ID_LEN + 19u)
 
 /* 비콘 파싱 결과 */
 typedef struct

@@ -44,6 +44,7 @@ typedef enum {
     ND_SYNC_BOOT_SEARCH = 0,
     ND_SYNC_LOCKED,
     ND_SYNC_HOLDOVER,
+    ND_SYNC_PHASE_WALK,
     ND_SYNC_UNSYNC_SEARCH,
 } ND_SyncState_t;
 
@@ -75,6 +76,7 @@ static bool s_test_mode = false;
 static ND_SyncState_t s_sync_state = ND_SYNC_BOOT_SEARCH;
 static bool s_runtime_enabled = false;
 static uint8_t s_beacon_miss_count = 0u;
+static uint8_t s_phase_walk_idx = 0u;
 static uint32_t s_last_beacon_anchor_sec = 0u;
 static ND_SensorResult_t s_last_sensor;
 static bool s_sensor_ready = false;
@@ -107,10 +109,12 @@ static char s_test_session_restore_unit = 'H';
 #define ND_REMINDER_RX_WINDOW_MS_MAX      (3600u)
 #define ND_REMINDER_RX_WINDOW_STEP_MS     (200u)
 #define ND_REMINDER_TX_GUARD_MS           (600u)
-#define ND_SYNC_HOLDOVER_MAX_MISS         (2u)
-#define ND_SEARCH_RX_WINDOW_MS            (5000u)
-#define ND_SEARCH_SCAN_INTERVAL_MS_BASE   (47000u)
-#define ND_SEARCH_SCAN_INTERVAL_MS_JITTER (13000u)
+#define ND_SYNC_HOLDOVER_MAX_MISS         (8u)
+#define ND_SYNC_PHASE_WALK_MAX_MISS       (24u)
+#define ND_PHASE_WALK_RX_WINDOW_MS        (1500u)
+#define ND_SEARCH_RX_WINDOW_MS            (2000u)
+#define ND_SEARCH_SCAN_INTERVAL_MS_BASE   (90000u)
+#define ND_SEARCH_SCAN_INTERVAL_MS_JITTER (30000u)
 #define ND_SYNC_BKP_MAGIC                 (0x4E445359u)
 #define ND_SYNC_BKP_DR_MAGIC              (RTC_BKP_DR0)
 #define ND_SYNC_BKP_DR_EPOCH              (RTC_BKP_DR1)
@@ -659,6 +663,42 @@ static uint32_t prv_get_unsync_search_delay_ms(void)
     return ND_SEARCH_SCAN_INTERVAL_MS_BASE + (now_ms % ND_SEARCH_SCAN_INTERVAL_MS_JITTER);
 }
 
+static int32_t prv_get_phase_walk_offset_sec(void)
+{
+    static const int16_t k_offsets_sec[] = { -20, 20, -40, 40, -60, 60, -90, 90 };
+    uint32_t count = (uint32_t)(sizeof(k_offsets_sec) / sizeof(k_offsets_sec[0]));
+
+    return (count > 0u) ? (int32_t)k_offsets_sec[s_phase_walk_idx % count] : 0;
+}
+
+static void prv_advance_phase_walk_index(void)
+{
+    static const int16_t k_offsets_sec[] = { -20, 20, -40, 40, -60, 60, -90, 90 };
+    uint32_t count = (uint32_t)(sizeof(k_offsets_sec) / sizeof(k_offsets_sec[0]));
+
+    if (count > 0u) {
+        s_phase_walk_idx = (uint8_t)((s_phase_walk_idx + 1u) % count);
+    }
+}
+
+static bool prv_get_next_phase_walk_scan_centi(uint64_t now_centi, uint64_t *out_scan_centi)
+{
+    uint64_t next_predicted_centi = 0u;
+    int64_t scan_centi;
+
+    if ((out_scan_centi == NULL) || !prv_get_next_predicted_beacon_centi(now_centi, &next_predicted_centi)) {
+        return false;
+    }
+
+    scan_centi = (int64_t)next_predicted_centi + ((int64_t)prv_get_phase_walk_offset_sec() * 100ll);
+    if (scan_centi <= (int64_t)now_centi) {
+        *out_scan_centi = now_centi + 1u;
+    } else {
+        *out_scan_centi = (uint64_t)scan_centi;
+    }
+    return true;
+}
+
 static uint32_t prv_pack_sync_meta(const uint8_t setting_ascii[3])
 {
     return ((uint32_t)setting_ascii[0]) |
@@ -774,6 +814,7 @@ static void prv_enter_locked_from_beacon(const UI_Beacon_t *beacon)
     s_sync_state = ND_SYNC_LOCKED;
     s_beacon_ok = true;
     s_beacon_miss_count = 0u;
+    s_phase_walk_idx = 0u;
     s_boot_listen_active = false;
     s_boot_listen_deadline_ms = 0u;
     s_runtime_enabled = true;
@@ -793,6 +834,7 @@ static bool prv_try_enter_holdover_from_backup(void)
     s_last_beacon_anchor_sec = epoch_sec;
     s_sync_state = ND_SYNC_HOLDOVER;
     s_beacon_ok = false;
+    s_phase_walk_idx = 0u;
     s_runtime_enabled = true;
     s_sensor_ready = false;
     if (s_beacon_miss_count < 1u) {
@@ -825,7 +867,8 @@ static void prv_enter_unsync_search(void)
     s_sensor_ready = false;
     s_boot_listen_active = false;
     s_boot_listen_deadline_ms = 0u;
-    s_force_gw_phase_scan = true;
+    s_phase_walk_idx = 0u;
+    s_force_gw_phase_scan = false;
     s_gw_phase_scan_cycle_count = 0u;
     if (s_beacon_miss_count < 1u) {
         s_beacon_miss_count = 1u;
@@ -839,21 +882,49 @@ static void prv_enter_unsync_search(void)
     prv_schedule_unsync_search_scan();
 }
 
+static void prv_enter_phase_walk(void)
+{
+    s_sync_state = ND_SYNC_PHASE_WALK;
+    s_beacon_ok = false;
+    s_runtime_enabled = true;
+    s_sensor_ready = false;
+    s_boot_listen_active = false;
+    s_boot_listen_deadline_ms = 0u;
+    s_force_gw_phase_scan = false;
+}
+
 static void prv_note_main_beacon_miss(void)
 {
+    bool can_phase_walk;
+
     s_beacon_ok = false;
     if (s_boot_listen_active) {
         return;
     }
-    if ((s_sync_state == ND_SYNC_LOCKED) || (s_sync_state == ND_SYNC_HOLDOVER)) {
-        if (s_beacon_miss_count < 10u) {
+    if ((s_sync_state == ND_SYNC_LOCKED) ||
+        (s_sync_state == ND_SYNC_HOLDOVER) ||
+        (s_sync_state == ND_SYNC_PHASE_WALK)) {
+        if (s_beacon_miss_count < 250u) {
             s_beacon_miss_count++;
         }
-        if (s_beacon_miss_count > ND_SYNC_HOLDOVER_MAX_MISS) {
-            prv_enter_unsync_search();
-        } else {
+
+        if (s_beacon_miss_count <= ND_SYNC_HOLDOVER_MAX_MISS) {
             s_sync_state = ND_SYNC_HOLDOVER;
+            return;
         }
+
+        can_phase_walk = UI_Time_IsValid() &&
+                         (s_last_beacon_anchor_sec != 0u) &&
+                         (s_beacon_miss_count <= ND_SYNC_PHASE_WALK_MAX_MISS);
+        if (can_phase_walk) {
+            if (s_sync_state != ND_SYNC_PHASE_WALK) {
+                s_phase_walk_idx = 0u;
+            }
+            prv_enter_phase_walk();
+            return;
+        }
+
+        prv_enter_unsync_search();
     }
 }
 
@@ -997,6 +1068,7 @@ static void prv_begin_boot_listen(void)
     s_runtime_enabled = false;
     s_sensor_ready = false;
     s_beacon_ok = false;
+    s_phase_walk_idx = 0u;
     s_boot_listen_active = true;
     s_boot_listen_deadline_ms = UTIL_TIMER_GetCurrentTime() + UI_ND_BOOT_LISTEN_MS;
     prv_stop_sensor_and_tx_timers();
@@ -1079,19 +1151,37 @@ static void prv_schedule_beacon_window(void)
     uint32_t early_ms;
 
     if (!UI_Time_IsValid()) {
-        s_force_gw_phase_scan = true;
         prv_schedule_unsync_search_scan();
         return;
     }
 
     now = UI_Time_NowCenti2016();
-    interval_sec = prv_get_beacon_interval_sec();
-    if (!prv_get_next_predicted_beacon_centi(now, &next)) {
-        if (s_sync_state == ND_SYNC_UNSYNC_SEARCH) {
-            s_force_gw_phase_scan = true;
-            prv_schedule_unsync_search_scan();
+
+    if (s_sync_state == ND_SYNC_UNSYNC_SEARCH) {
+        prv_schedule_unsync_search_scan();
+        return;
+    }
+
+    if (s_sync_state == ND_SYNC_PHASE_WALK) {
+        if (!prv_get_next_phase_walk_scan_centi(now, &next)) {
+            prv_enter_unsync_search();
             return;
         }
+
+        delta_centi = (next > now) ? (next - now) : 1u;
+        delta_ms = (uint32_t)(delta_centi * 10u);
+        if (delta_ms == 0u) {
+            delta_ms = 1u;
+        }
+
+        (void)UTIL_TIMER_Stop(&s_tmr_beacon_sched);
+        (void)UTIL_TIMER_SetPeriod(&s_tmr_beacon_sched, delta_ms);
+        (void)UTIL_TIMER_Start(&s_tmr_beacon_sched);
+        return;
+    }
+
+    interval_sec = prv_get_beacon_interval_sec();
+    if (!prv_get_next_predicted_beacon_centi(now, &next)) {
         next = prv_next_event_centi(now, interval_sec, 0u);
     }
 
@@ -1244,13 +1334,14 @@ void ND_App_Process(void)
         s_evt_flags &= ~ND_EVT_BEACON_LISTEN_START;
         bool started = false;
         if (!UI_Time_IsValid()) {
-            s_force_gw_phase_scan = true;
             started = prv_start_beacon_rx(ND_SEARCH_RX_WINDOW_MS, ND_RX_REASON_SEARCH);
+        } else if (s_sync_state == ND_SYNC_PHASE_WALK) {
+            started = prv_start_beacon_rx(ND_PHASE_WALK_RX_WINDOW_MS, ND_RX_REASON_MAIN);
+            if (started) {
+                prv_advance_phase_walk_index();
+            }
         } else if (s_sync_state == ND_SYNC_UNSYNC_SEARCH) {
-            uint32_t window_ms = (s_last_beacon_anchor_sec != 0u)
-                               ? prv_get_beacon_rx_window_ms_with_phase_scan()
-                               : ND_SEARCH_RX_WINDOW_MS;
-            started = prv_start_beacon_rx(window_ms, ND_RX_REASON_SEARCH);
+            started = prv_start_beacon_rx(ND_SEARCH_RX_WINDOW_MS, ND_RX_REASON_SEARCH);
         } else {
             started = prv_start_beacon_rx(prv_get_beacon_rx_window_ms_with_phase_scan(), ND_RX_REASON_MAIN);
         }
