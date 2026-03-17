@@ -460,6 +460,15 @@ static bool prv_icm_wakeup(void)
     return true;
 }
 
+static bool prv_icm_sleep(void)
+{
+    if (!prv_icm_select_bank(0u)) {
+        return false;
+    }
+    /* PWR_MGMT_1[6]=1 sleep, keep best available clock select to avoid undefined state. */
+    return prv_icm_spi_write(0x06u, 0x41u);
+}
+
 static bool prv_icm_check_whoami(void)
 {
     uint8_t who = 0u;
@@ -621,6 +630,7 @@ bool ND_Sensors_MeasureAll(ND_SensorResult_t* out, uint8_t sensor_en_mask)
         out->x = prv_trimmed_mean_i16(xs, UI_NODE_ICM_SAMPLE_COUNT, UI_NODE_ICM_TRIM_COUNT);
         out->y = prv_trimmed_mean_i16(ys, UI_NODE_ICM_SAMPLE_COUNT, UI_NODE_ICM_TRIM_COUNT);
         out->z = prv_trimmed_mean_i16(zs, UI_NODE_ICM_SAMPLE_COUNT, UI_NODE_ICM_TRIM_COUNT);
+        (void)prv_icm_sleep();
     }
 #endif
 
