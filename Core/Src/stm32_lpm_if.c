@@ -92,11 +92,19 @@ void PWR_ExitOffMode(void)
 void PWR_EnterStopMode(void)
 {
   /* USER CODE BEGIN EnterStopMode_1 */
-	HAL_GPIO_WritePin(BT_EN_GPIO_Port, BT_EN_Pin, GPIO_PIN_RESET);
-	HAL_GPIO_WritePin(GPIOA, ADC_EN_Pin, GPIO_PIN_RESET);
+    (void)HAL_ADC_Stop(&hadc);
 
 	UI_LPM_BeforeStop_DeInitPeripherals();
 	UI_UART1_TxDma_DeInit();
+	HAL_GPIO_WritePin(ICM20948_CS_GPIO_Port, ICM20948_CS_Pin, GPIO_PIN_RESET);
+
+	HAL_GPIO_WritePin(ADC_CS_GPIO_Port, ADC_CS_Pin, GPIO_PIN_RESET);
+
+
+	__HAL_RCC_USART1_CLK_DISABLE();
+	__HAL_RCC_SPI1_CLK_DISABLE();
+	__HAL_RCC_ADC_CLK_DISABLE();
+
   /* USER CODE END EnterStopMode_1 */
   HAL_SuspendTick();
   /* Clear Status Flag before entering STOP/STANDBY Mode */
