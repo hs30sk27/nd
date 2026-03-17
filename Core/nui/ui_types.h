@@ -16,6 +16,14 @@ extern "C" {
 #endif
 
 /* -------------------------------------------------------------------------- */
+/* 공통 센서 enable 비트                                                      */
+/* -------------------------------------------------------------------------- */
+#define UI_SENSOR_EN_ICM20948  (1u << 0)
+#define UI_SENSOR_EN_ADC       (1u << 1)
+#define UI_SENSOR_EN_PULSE     (1u << 2)
+#define UI_SENSOR_EN_ALL       (UI_SENSOR_EN_ICM20948 | UI_SENSOR_EN_ADC | UI_SENSOR_EN_PULSE)
+
+/* -------------------------------------------------------------------------- */
 /* 공통 설정(런타임)                                                          */
 /* -------------------------------------------------------------------------- */
 typedef struct
@@ -29,6 +37,7 @@ typedef struct
 
     /* Node 전용 */
     uint8_t  node_num;      /* 0..49 (ND NUM:xx, 0-based) */
+    uint8_t  sensor_en_mask;/* bit0:ICM20948, bit1:ADC, bit2:PULSE */
 
     /* 테스트/동작 설정 (GW SETTING 명령 값)
      *  - setting_value: 0..99
@@ -56,6 +65,7 @@ void UI_SetNetId(const uint8_t net_id_10[UI_NET_ID_LEN]);
 void UI_SetGwNum(uint8_t gw_num);
 void UI_SetMaxNodes(uint8_t max_nodes);
 void UI_SetNodeNum(uint8_t node_num);
+void UI_SetSensorEnableMask(uint8_t sensor_en_mask);
 void UI_SetSetting(uint8_t value, char unit);
 void UI_SetTcpIp(const uint8_t ip[4], uint16_t port);
 void UI_SetLocAscii(const char* loc_ascii);

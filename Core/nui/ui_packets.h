@@ -20,6 +20,7 @@
  *  - X,Y,Z    int16 each
  *  - ADC      uint16
  *  - PULSE    uint32
+ *  - SENSOR_EN 1 byte (bit0=ICM20948, bit1=ADC, bit2=PULSE)
  *  - CRC16    2 bytes
  */
 
@@ -36,7 +37,7 @@ extern "C" {
 #endif
 
 #define UI_BEACON_PAYLOAD_LEN   (UI_NET_ID_LEN + 11u)
-#define UI_NODE_PAYLOAD_LEN     (UI_NET_ID_LEN + 19u)
+#define UI_NODE_PAYLOAD_LEN     (UI_NET_ID_LEN + 20u)
 
 /* 비콘 파싱 결과 */
 typedef struct
@@ -64,6 +65,7 @@ typedef struct
     uint16_t adc;
 
     uint32_t pulse_cnt;
+    uint8_t  sensor_en_mask;
 
 } UI_NodeData_t;
 

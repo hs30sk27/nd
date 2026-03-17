@@ -1,4 +1,5 @@
 #include "nd_sensors.h"
+#include "ui_types.h"
 #include "ui_conf.h"
 #include "ui_gpio.h"
 #include "main.h"
@@ -544,7 +545,7 @@ void ND_Sensors_Init(void)
     /* ADC_EN 등 초기 상태는 main.c에서 설정됨. */
 }
 
-bool ND_Sensors_MeasureAll(ND_SensorResult_t* out)
+bool ND_Sensors_MeasureAll(ND_SensorResult_t* out, uint8_t sensor_en_mask)
 {
     int16_t temp_x10 = (int16_t)0xFFFF;
     int8_t temp_c = UI_NODE_TEMP_INVALID_C;
@@ -555,6 +556,7 @@ bool ND_Sensors_MeasureAll(ND_SensorResult_t* out)
     }
 
     memset(out, 0, sizeof(*out));
+    sensor_en_mask &= UI_SENSOR_EN_ALL;
 
     /* Stop wake 이후에는 ADC/SPI가 DeInit 상태일 수 있음 -> 필요한 것만 Init */
     prv_ensure_adc_init();
@@ -569,7 +571,10 @@ bool ND_Sensors_MeasureAll(ND_SensorResult_t* out)
     out->y = (int16_t)0xFFFFu;
     out->z = (int16_t)0xFFFFu;
     out->adc = 0xFFFFu;
-    out->pulse_cnt = UI_GPIO_GetPulseCount();
+    out->pulse_cnt = 0xFFFFFFFFu;
+    if ((sensor_en_mask & UI_SENSOR_EN_PULSE) != 0u) {
+        out->pulse_cnt = UI_GPIO_GetPulseCount();
+    }
 
     /*
      * 1) MCU 내부 온도 / VDD를 가장 먼저 측정한다.
@@ -590,7 +595,8 @@ bool ND_Sensors_MeasureAll(ND_SensorResult_t* out)
 
     /* 2) ICM20948 */
 #if defined(ICM20948_CS_Pin)
-    if (prv_icm_wakeup() && prv_icm_check_whoami()) {
+    if (((sensor_en_mask & UI_SENSOR_EN_ICM20948) != 0u) &&
+        prv_icm_wakeup() && prv_icm_check_whoami()) {
         int16_t xs[UI_NODE_ICM_SAMPLE_COUNT];
         int16_t ys[UI_NODE_ICM_SAMPLE_COUNT];
         int16_t zs[UI_NODE_ICM_SAMPLE_COUNT];
@@ -620,9 +626,11 @@ bool ND_Sensors_MeasureAll(ND_SensorResult_t* out)
 
     /* 3) LTC2450 (ADC_EN is LTC2450 power only) */
 #if defined(ADC_CS_Pin)
-    prv_set_adc_en(true);
-    HAL_Delay(10u);
-    out->adc = prv_ltc_read_avg();
+    if ((sensor_en_mask & UI_SENSOR_EN_ADC) != 0u) {
+        prv_set_adc_en(true);
+        HAL_Delay(10u);
+        out->adc = prv_ltc_read_avg();
+    }
 #endif
 
     prv_set_adc_en(false);

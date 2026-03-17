@@ -1271,7 +1271,7 @@ void UI_Hook_OnOpKeyPressed(void)
     uint32_t pulse;
 
     prv_led1(true);
-    (void)ND_Sensors_MeasureAll(&r);
+    (void)ND_Sensors_MeasureAll(&r, UI_GetConfig()->sensor_en_mask);
     UI_BLE_EnableForMs(UI_BLE_ACTIVE_MS);
     UI_Time_FormatNow(ts, sizeof(ts));
     pulse = r.pulse_cnt;
@@ -1292,7 +1292,7 @@ bool UI_Hook_OnTestStartRequested(void)
     prv_led1(true);
     UI_BLE_EnableForMs(UI_BLE_ACTIVE_MS);
     prv_start_test_session_from_cmd();
-    measure_ok = ND_Sensors_MeasureAll(&r);
+    measure_ok = ND_Sensors_MeasureAll(&r, UI_GetConfig()->sensor_en_mask);
     if (measure_ok) {
         prv_send_test_result_ble(&r);
     }
@@ -1396,7 +1396,7 @@ void ND_App_Process(void)
         s_last_sensor_slot_id = sensor_slot_id;
         {
             ND_SensorResult_t measured = s_last_sensor;
-            bool measure_ok = ND_Sensors_MeasureAll(&measured);
+            bool measure_ok = ND_Sensors_MeasureAll(&measured, UI_GetConfig()->sensor_en_mask);
             if (measure_ok) {
                 s_last_sensor = measured;
                 s_sensor_ready = true;
@@ -1441,8 +1441,13 @@ void ND_App_Process(void)
             tx_sensor.y = (int16_t)0xFFFFu;
             tx_sensor.z = (int16_t)0xFFFFu;
             tx_sensor.adc = 0xFFFFu;
+            tx_sensor.pulse_cnt = 0xFFFFFFFFu;
         }
-        tx_sensor.pulse_cnt = UI_GPIO_GetPulseCount();
+        if ((cfg->sensor_en_mask & UI_SENSOR_EN_PULSE) != 0u) {
+            tx_sensor.pulse_cnt = UI_GPIO_GetPulseCount();
+        } else {
+            tx_sensor.pulse_cnt = 0xFFFFFFFFu;
+        }
 
         if (!prv_is_event_due_now(now_centi, period, tx_off, ND_TX_DUE_LATE_GRACE_CENTI, &due_tx_centi)) {
             prv_schedule_tx_event_at(prv_next_event_centi(now_centi, period, tx_off), cfg->node_num);
@@ -1473,6 +1478,7 @@ void ND_App_Process(void)
         nd.z = tx_sensor.z;
         nd.adc = tx_sensor.adc;
         nd.pulse_cnt = tx_sensor.pulse_cnt;
+        nd.sensor_en_mask = cfg->sensor_en_mask;
 
         (void)UI_Pkt_BuildNodeData(s_node_tx_payload, &nd);
         if (!prv_radio_ready_for_tx()) {

@@ -38,8 +38,9 @@ typedef struct
 
 void ND_Sensors_Init(void);
 
-/* 센서 전체 측정(최대 50초 이내 권장) */
-bool ND_Sensors_MeasureAll(ND_SensorResult_t* out);
+/* 센서 전체 측정(최대 50초 이내 권장)
+ * sensor_en_mask: bit0=ICM20948, bit1=ADC, bit2=PULSE */
+bool ND_Sensors_MeasureAll(ND_SensorResult_t* out, uint8_t sensor_en_mask);
 
 #ifdef __cplusplus
 }

@@ -99,6 +99,7 @@ uint8_t UI_Pkt_BuildNodeData(uint8_t out[UI_NODE_PAYLOAD_LEN],
 
     prv_put_u16_le(p, in->adc); p += 2;
     prv_put_u32_le(p, in->pulse_cnt); p += 4;
+    p[0] = in->sensor_en_mask; p += 1;
 
     uint16_t crc = UI_CRC16_CCITT(out, (size_t)(UI_NODE_PAYLOAD_LEN - 2u), UI_CRC16_INIT);
     prv_put_u16_le(p, crc);
@@ -129,6 +130,7 @@ bool UI_Pkt_ParseNodeData(const uint8_t* buf, uint16_t len, UI_NodeData_t* out)
 
     out->adc = prv_get_u16_le(p); p += 2;
     out->pulse_cnt = prv_get_u32_le(p); p += 4;
+    out->sensor_en_mask = p[0]; p += 1;
 
     return true;
 }

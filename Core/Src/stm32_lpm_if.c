@@ -92,6 +92,9 @@ void PWR_ExitOffMode(void)
 void PWR_EnterStopMode(void)
 {
   /* USER CODE BEGIN EnterStopMode_1 */
+	HAL_GPIO_WritePin(BT_EN_GPIO_Port, BT_EN_Pin, GPIO_PIN_RESET);
+	HAL_GPIO_WritePin(GPIOA, ADC_EN_Pin, GPIO_PIN_RESET);
+
 	UI_LPM_BeforeStop_DeInitPeripherals();
 	UI_UART1_TxDma_DeInit();
   /* USER CODE END EnterStopMode_1 */

@@ -15,7 +15,7 @@
 #include <stdio.h>
 
 #define UI_CFG_FLASH_MAGIC              (0x55494346u) /* 'UICF' */
-#define UI_CFG_FLASH_VERSION            (0x0002u)
+#define UI_CFG_FLASH_VERSION            (0x0003u)
 
 #ifndef UI_CFG_FLASH_FALLBACK_SIZE_BYTES
 #define UI_CFG_FLASH_FALLBACK_SIZE_BYTES (256u * 1024u)
@@ -63,9 +63,10 @@ static void prv_init_defaults(void)
     memset(s_cfg.net_id, 0, sizeof(s_cfg.net_id));
     memcpy(s_cfg.net_id, "POSITION#1", sizeof("POSITION#1") - 1u);
 
-    s_cfg.gw_num    = 0u;
-    s_cfg.max_nodes = UI_MAX_NODES;
-    s_cfg.node_num  = 0u;
+    s_cfg.gw_num         = 0u;
+    s_cfg.max_nodes      = UI_MAX_NODES;
+    s_cfg.node_num       = 0u;
+    s_cfg.sensor_en_mask = UI_SENSOR_EN_ALL;
 
     s_cfg.setting_value = 0u;
     s_cfg.setting_unit  = 'H';
@@ -142,6 +143,8 @@ static void prv_sanitize_cfg(void)
     {
         s_cfg.node_num = (UI_MAX_NODES - 1u);
     }
+
+    s_cfg.sensor_en_mask &= UI_SENSOR_EN_ALL;
 
     if (s_cfg.setting_value > 99u)
     {
@@ -303,6 +306,11 @@ void UI_SetNodeNum(uint8_t node_num)
 {
     if (node_num >= UI_MAX_NODES) { node_num = (UI_MAX_NODES - 1u); }
     s_cfg.node_num = node_num;
+}
+
+void UI_SetSensorEnableMask(uint8_t sensor_en_mask)
+{
+    s_cfg.sensor_en_mask = (uint8_t)(sensor_en_mask & UI_SENSOR_EN_ALL);
 }
 
 void UI_SetSetting(uint8_t value, char unit)

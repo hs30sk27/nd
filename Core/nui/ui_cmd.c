@@ -132,6 +132,12 @@ static bool prv_commit_config_changed(void)
     UI_Hook_OnConfigChanged();
     return true;
 }
+static bool prv_commit_sensor_mask(uint8_t sensor_mask)
+{
+    UI_SetSensorEnableMask(sensor_mask);
+    return prv_commit_config_changed();
+}
+
 
 static void prv_send_setting_read(void)
 {
@@ -146,6 +152,18 @@ static void prv_send_setting_read(void)
     UI_UART_SendString(line);
 
     (void)snprintf(line, sizeof(line), "ND NUM:%u\r\n", cfg->node_num);
+    UI_UART_SendString(line);
+
+    (void)snprintf(line, sizeof(line), "ICM:%s\r\n",
+                   (cfg->sensor_en_mask & UI_SENSOR_EN_ICM20948) ? "EN" : "DIS");
+    UI_UART_SendString(line);
+
+    (void)snprintf(line, sizeof(line), "ADC:%s\r\n",
+                   (cfg->sensor_en_mask & UI_SENSOR_EN_ADC) ? "EN" : "DIS");
+    UI_UART_SendString(line);
+
+    (void)snprintf(line, sizeof(line), "PULSE:%s\r\n",
+                   (cfg->sensor_en_mask & UI_SENSOR_EN_PULSE) ? "EN" : "DIS");
     UI_UART_SendString(line);
 
     (void)snprintf(line, sizeof(line), "SETTING:%c%c%c\r\n",
@@ -277,6 +295,48 @@ void UI_Cmd_ProcessLine(const char* line_in)
         {
             prv_send_error();
         }
+        return;
+    }
+
+    /* -------------------- ICM EN/DIS -------------------- */
+    if (prv_cmd_equals_relaxed(p, "ICM EN"))
+    {
+        const UI_Config_t* cfg = UI_GetConfig();
+        (void)prv_commit_sensor_mask((uint8_t)(cfg->sensor_en_mask | UI_SENSOR_EN_ICM20948));
+        return;
+    }
+    if (prv_cmd_equals_relaxed(p, "ICM DIS"))
+    {
+        const UI_Config_t* cfg = UI_GetConfig();
+        (void)prv_commit_sensor_mask((uint8_t)(cfg->sensor_en_mask & (uint8_t)~UI_SENSOR_EN_ICM20948));
+        return;
+    }
+
+    /* -------------------- ADC EN/DIS -------------------- */
+    if (prv_cmd_equals_relaxed(p, "ADC EN"))
+    {
+        const UI_Config_t* cfg = UI_GetConfig();
+        (void)prv_commit_sensor_mask((uint8_t)(cfg->sensor_en_mask | UI_SENSOR_EN_ADC));
+        return;
+    }
+    if (prv_cmd_equals_relaxed(p, "ADC DIS"))
+    {
+        const UI_Config_t* cfg = UI_GetConfig();
+        (void)prv_commit_sensor_mask((uint8_t)(cfg->sensor_en_mask & (uint8_t)~UI_SENSOR_EN_ADC));
+        return;
+    }
+
+    /* -------------------- PULSE EN/DIS ------------------ */
+    if (prv_cmd_equals_relaxed(p, "PULSE EN"))
+    {
+        const UI_Config_t* cfg = UI_GetConfig();
+        (void)prv_commit_sensor_mask((uint8_t)(cfg->sensor_en_mask | UI_SENSOR_EN_PULSE));
+        return;
+    }
+    if (prv_cmd_equals_relaxed(p, "PULSE DIS"))
+    {
+        const UI_Config_t* cfg = UI_GetConfig();
+        (void)prv_commit_sensor_mask((uint8_t)(cfg->sensor_en_mask & (uint8_t)~UI_SENSOR_EN_PULSE));
         return;
     }
 
