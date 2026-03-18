@@ -88,7 +88,7 @@ static bool s_test_session_active = false;
 static uint8_t s_test_session_restore_value = 0u;
 static char s_test_session_restore_unit = 'H';
 
-#define ND_TX_IN_SLOT_DELAY_MS            (0u)
+#define ND_TX_IN_SLOT_DELAY_MS            (150u)
 #define ND_TX_SLOT0_EXTRA_DELAY_MS        (0u)
 #define ND_TX_DUE_LATE_GRACE_CENTI        ((UI_SLOT_DURATION_MS / 10u) - 10u)
 #define ND_TX_RETRY_DELAY_MS              (20u)
@@ -533,8 +533,19 @@ static uint32_t prv_get_tx_base_offset_sec(void)
 
 static uint32_t prv_get_tx_in_slot_delay_ms(uint8_t node_num)
 {
-    (void)node_num;
-    return 0u;
+    uint32_t delay_ms = ND_TX_IN_SLOT_DELAY_MS;
+
+    if (node_num == 0u) {
+        delay_ms += ND_TX_SLOT0_EXTRA_DELAY_MS;
+    }
+
+    /* TX는 각 2초 슬롯 안에서 충분히 이른 시점에 끝나야 한다.
+     * 지나치게 큰 지연값이 설정돼도 다음 슬롯을 침범하지 않도록 상한을 둔다. */
+    if (delay_ms >= (UI_SLOT_DURATION_MS - ND_TX_RETRY_GUARD_MS - 50u)) {
+        delay_ms = UI_SLOT_DURATION_MS - ND_TX_RETRY_GUARD_MS - 50u;
+    }
+
+    return delay_ms;
 }
 
 static void prv_schedule_tx_event_at(uint64_t target_centi, uint8_t node_num)

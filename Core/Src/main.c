@@ -22,7 +22,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include "radio.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -102,6 +102,7 @@ int main(void)
   MX_SubGHz_Phy_Init();
   MX_ADC_Init();
   /* USER CODE BEGIN 2 */
+
 
   /* USER CODE END 2 */
 
