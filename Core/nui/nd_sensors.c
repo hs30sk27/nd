@@ -51,6 +51,7 @@ extern void MX_SPI1_Init(void);
 #define UI_ND_TEMP_STARTUP_DELAY_MS         (2u)
 
 static int8_t s_last_valid_temp_c = UI_NODE_TEMP_INVALID_C;
+static uint8_t s_last_valid_batt_lvl = UI_NODE_BATT_LVL_INVALID;
 
 /* -------------------------------------------------------------------------- */
 /* 유틸: 정렬 + 트림 평균                                                     */
@@ -283,7 +284,7 @@ static bool prv_read_vdd_mv_filtered(uint16_t* out_vdd_mv)
 #endif
 }
 
-static bool prv_read_temp_x10_internal(int16_t* out_temp_x10)
+static bool prv_read_temp_x10_internal(int16_t* out_temp_x10, uint16_t* out_vdd_mv)
 {
 #if defined(ADC_CHANNEL_TEMPSENSOR) && defined(__HAL_ADC_CALC_TEMPERATURE)
     uint16_t samples[UI_NODE_TEMP_SAMPLE_COUNT];
@@ -291,6 +292,9 @@ static bool prv_read_temp_x10_internal(int16_t* out_temp_x10)
 
     if (out_temp_x10 == NULL) {
         return false;
+    }
+    if (out_vdd_mv != NULL) {
+        *out_vdd_mv = 0u;
     }
 
     /*
@@ -308,6 +312,9 @@ static bool prv_read_temp_x10_internal(int16_t* out_temp_x10)
 
     if (!prv_read_vdd_mv_filtered(&vdd_mv)) {
         return false;
+    }
+    if (out_vdd_mv != NULL) {
+        *out_vdd_mv = vdd_mv;
     }
 
     for (uint32_t i = 0u; i < UI_NODE_TEMP_WARMUP_COUNT; i++) {
@@ -345,6 +352,7 @@ static bool prv_read_temp_x10_internal(int16_t* out_temp_x10)
     return true;
 #else
     (void)out_temp_x10;
+    (void)out_vdd_mv;
     return false;
 #endif
 }
@@ -559,6 +567,7 @@ bool ND_Sensors_MeasureAll(ND_SensorResult_t* out, uint8_t sensor_en_mask)
     int16_t temp_x10 = (int16_t)0xFFFF;
     int8_t temp_c = UI_NODE_TEMP_INVALID_C;
     uint16_t vdd_x10 = 0xFFFFu;
+    uint16_t temp_vdd_mv = 0u;
 
     if (out == NULL) {
         return false;
@@ -574,7 +583,7 @@ bool ND_Sensors_MeasureAll(ND_SensorResult_t* out, uint8_t sensor_en_mask)
 #endif
 
     /* 기본 invalid */
-    out->batt_lvl = UI_NODE_BATT_LVL_LOW;
+    out->batt_lvl = UI_NODE_BATT_LVL_INVALID;
     out->temp_c = UI_NODE_TEMP_INVALID_C;
     out->x = (int16_t)0xFFFFu;
     out->y = (int16_t)0xFFFFu;
@@ -589,7 +598,8 @@ bool ND_Sensors_MeasureAll(ND_SensorResult_t* out, uint8_t sensor_en_mask)
      * 1) MCU 내부 온도 / VDD를 가장 먼저 측정한다.
      *    이 값은 외부 센서 전원(ADC_EN)과 무관하므로, 외부 센서 측정보다 먼저 읽는 것이 맞다.
      */
-    if (prv_read_temp_x10_internal(&temp_x10) && prv_temp_x10_to_temp_c_checked(temp_x10, &temp_c)) {
+    if (prv_read_temp_x10_internal(&temp_x10, &temp_vdd_mv) &&
+        prv_temp_x10_to_temp_c_checked(temp_x10, &temp_c)) {
         temp_c = prv_apply_temp_offset_c(temp_c);
         out->temp_c = temp_c;
         s_last_valid_temp_c = temp_c;
@@ -597,9 +607,19 @@ bool ND_Sensors_MeasureAll(ND_SensorResult_t* out, uint8_t sensor_en_mask)
         out->temp_c = s_last_valid_temp_c;
     }
 
-    vdd_x10 = prv_read_vdd_x10();
-    if ((vdd_x10 != 0xFFFFu) && (vdd_x10 >= UI_NODE_BATT_LOW_THRESHOLD_X10)) {
-        out->batt_lvl = UI_NODE_BATT_LVL_NORMAL;
+    if ((temp_vdd_mv >= UI_ND_VDD_MIN_VALID_MV) && (temp_vdd_mv <= UI_ND_VDD_MAX_VALID_MV)) {
+        vdd_x10 = (uint16_t)((temp_vdd_mv + 50u) / 100u);
+    } else {
+        vdd_x10 = prv_read_vdd_x10();
+    }
+
+    if (vdd_x10 != 0xFFFFu) {
+        out->batt_lvl = (vdd_x10 >= UI_NODE_BATT_LOW_THRESHOLD_X10)
+                      ? UI_NODE_BATT_LVL_NORMAL
+                      : UI_NODE_BATT_LVL_LOW;
+        s_last_valid_batt_lvl = out->batt_lvl;
+    } else if (s_last_valid_batt_lvl != UI_NODE_BATT_LVL_INVALID) {
+        out->batt_lvl = s_last_valid_batt_lvl;
     }
 
     /* 2) ICM20948 */

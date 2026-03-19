@@ -80,6 +80,7 @@ static uint8_t s_phase_walk_idx = 0u;
 static uint32_t s_last_beacon_anchor_sec = 0u;
 static ND_SensorResult_t s_last_sensor;
 static bool s_sensor_ready = false;
+static bool s_last_sensor_valid = false;
 static uint8_t s_node_tx_payload[UI_NODE_PAYLOAD_LEN];
 static uint32_t s_last_sensor_slot_id = 0xFFFFFFFFu;
 static uint32_t s_last_tx_slot_id = 0xFFFFFFFFu;
@@ -230,6 +231,136 @@ static const char* prv_batt_text_from_level(uint8_t batt_lvl)
         return "-";
     }
     return (batt_lvl == UI_NODE_BATT_LVL_NORMAL) ? "3.4" : "LOW";
+}
+
+static void prv_set_invalid_sensor_result(ND_SensorResult_t* r)
+{
+    if (r == NULL) {
+        return;
+    }
+
+    memset(r, 0, sizeof(*r));
+    r->batt_lvl = UI_NODE_BATT_LVL_INVALID;
+    r->temp_c = UI_NODE_TEMP_INVALID_C;
+    r->x = (int16_t)0xFFFFu;
+    r->y = (int16_t)0xFFFFu;
+    r->z = (int16_t)0xFFFFu;
+    r->adc = 0xFFFFu;
+    r->pulse_cnt = 0xFFFFFFFFu;
+}
+
+static bool prv_sensor_xyz_valid(const ND_SensorResult_t* r)
+{
+    return (r != NULL) &&
+           (r->x != (int16_t)0xFFFFu) &&
+           (r->y != (int16_t)0xFFFFu) &&
+           (r->z != (int16_t)0xFFFFu);
+}
+
+static bool prv_sensor_adc_valid(const ND_SensorResult_t* r)
+{
+    return (r != NULL) && (r->adc != 0xFFFFu);
+}
+
+static bool prv_sensor_pulse_valid(const ND_SensorResult_t* r)
+{
+    return (r != NULL) && (r->pulse_cnt != 0xFFFFFFFFu);
+}
+
+static bool prv_sensor_temp_valid(const ND_SensorResult_t* r)
+{
+    return (r != NULL) && (r->temp_c != UI_NODE_TEMP_INVALID_C);
+}
+
+static bool prv_sensor_batt_valid(const ND_SensorResult_t* r)
+{
+    return (r != NULL) && (r->batt_lvl != UI_NODE_BATT_LVL_INVALID);
+}
+
+static bool prv_sensor_result_has_any_valid(const ND_SensorResult_t* r, uint8_t cfg_mask)
+{
+    if (r == NULL) {
+        return false;
+    }
+
+    if (prv_sensor_batt_valid(r) || prv_sensor_temp_valid(r)) {
+        return true;
+    }
+    if (((cfg_mask & UI_SENSOR_EN_ICM20948) != 0u) && prv_sensor_xyz_valid(r)) {
+        return true;
+    }
+    if (((cfg_mask & UI_SENSOR_EN_ADC) != 0u) && prv_sensor_adc_valid(r)) {
+        return true;
+    }
+    if (((cfg_mask & UI_SENSOR_EN_PULSE) != 0u) && prv_sensor_pulse_valid(r)) {
+        return true;
+    }
+
+    return false;
+}
+
+static uint8_t prv_build_effective_sensor_mask(const ND_SensorResult_t* r, uint8_t cfg_mask)
+{
+    uint8_t mask = (uint8_t)(cfg_mask & UI_SENSOR_EN_ALL);
+
+    if (r == NULL) {
+        return 0u;
+    }
+
+    if (!prv_sensor_xyz_valid(r)) {
+        mask &= (uint8_t)~UI_SENSOR_EN_ICM20948;
+    }
+    if (!prv_sensor_adc_valid(r)) {
+        mask &= (uint8_t)~UI_SENSOR_EN_ADC;
+    }
+    if (!prv_sensor_pulse_valid(r)) {
+        mask &= (uint8_t)~UI_SENSOR_EN_PULSE;
+    }
+
+    return mask;
+}
+
+static void prv_merge_sensor_result(ND_SensorResult_t* dst, const ND_SensorResult_t* fresh, uint8_t cfg_mask)
+{
+    if ((dst == NULL) || (fresh == NULL)) {
+        return;
+    }
+
+    if (prv_sensor_batt_valid(fresh)) {
+        dst->batt_lvl = fresh->batt_lvl;
+    }
+
+    if (prv_sensor_temp_valid(fresh)) {
+        dst->temp_c = fresh->temp_c;
+    }
+
+    if ((cfg_mask & UI_SENSOR_EN_ICM20948) != 0u) {
+        if (prv_sensor_xyz_valid(fresh)) {
+            dst->x = fresh->x;
+            dst->y = fresh->y;
+            dst->z = fresh->z;
+        }
+    } else {
+        dst->x = (int16_t)0xFFFFu;
+        dst->y = (int16_t)0xFFFFu;
+        dst->z = (int16_t)0xFFFFu;
+    }
+
+    if ((cfg_mask & UI_SENSOR_EN_ADC) != 0u) {
+        if (prv_sensor_adc_valid(fresh)) {
+            dst->adc = fresh->adc;
+        }
+    } else {
+        dst->adc = 0xFFFFu;
+    }
+
+    if ((cfg_mask & UI_SENSOR_EN_PULSE) != 0u) {
+        if (prv_sensor_pulse_valid(fresh)) {
+            dst->pulse_cnt = fresh->pulse_cnt;
+        }
+    } else {
+        dst->pulse_cnt = 0xFFFFFFFFu;
+    }
 }
 
 static void prv_send_test_result_ble(const ND_SensorResult_t* r)
@@ -1406,12 +1537,26 @@ void ND_App_Process(void)
         }
         s_last_sensor_slot_id = sensor_slot_id;
         {
-            ND_SensorResult_t measured = s_last_sensor;
-            bool measure_ok = ND_Sensors_MeasureAll(&measured, UI_GetConfig()->sensor_en_mask);
+            ND_SensorResult_t measured;
+            ND_SensorResult_t merged;
+            uint8_t cfg_mask = (uint8_t)(UI_GetConfig()->sensor_en_mask & UI_SENSOR_EN_ALL);
+            bool measure_ok;
+
+            prv_set_invalid_sensor_result(&measured);
+            measure_ok = ND_Sensors_MeasureAll(&measured, cfg_mask);
             if (measure_ok) {
-                s_last_sensor = measured;
-                s_sensor_ready = true;
-                prv_led1_pulse_10ms();
+                if (s_last_sensor_valid) {
+                    merged = s_last_sensor;
+                } else {
+                    prv_set_invalid_sensor_result(&merged);
+                }
+                prv_merge_sensor_result(&merged, &measured, cfg_mask);
+                s_last_sensor = merged;
+                s_last_sensor_valid = prv_sensor_result_has_any_valid(&s_last_sensor, cfg_mask);
+                s_sensor_ready = s_last_sensor_valid;
+                if (s_last_sensor_valid) {
+                    prv_led1_pulse_10ms();
+                }
             }
         }
         prv_reschedule_main_if_pending();
@@ -1443,16 +1588,14 @@ void ND_App_Process(void)
             return;
         }
 
-        tx_sensor = s_last_sensor;
-        if (!s_sensor_ready) {
-            memset(&tx_sensor, 0, sizeof(tx_sensor));
-            tx_sensor.batt_lvl = UI_NODE_BATT_LVL_INVALID;
-            tx_sensor.temp_c = UI_NODE_TEMP_INVALID_C;
-            tx_sensor.x = (int16_t)0xFFFFu;
-            tx_sensor.y = (int16_t)0xFFFFu;
-            tx_sensor.z = (int16_t)0xFFFFu;
-            tx_sensor.adc = 0xFFFFu;
-            tx_sensor.pulse_cnt = 0xFFFFFFFFu;
+        if (s_last_sensor_valid) {
+            tx_sensor = s_last_sensor;
+        } else {
+            prv_set_invalid_sensor_result(&tx_sensor);
+        }
+
+        if (!s_sensor_ready && !s_last_sensor_valid) {
+            prv_set_invalid_sensor_result(&tx_sensor);
         }
         if ((cfg->sensor_en_mask & UI_SENSOR_EN_PULSE) != 0u) {
             tx_sensor.pulse_cnt = UI_GPIO_GetPulseCount();
@@ -1489,7 +1632,7 @@ void ND_App_Process(void)
         nd.z = tx_sensor.z;
         nd.adc = tx_sensor.adc;
         nd.pulse_cnt = tx_sensor.pulse_cnt;
-        nd.sensor_en_mask = cfg->sensor_en_mask;
+        nd.sensor_en_mask = prv_build_effective_sensor_mask(&tx_sensor, cfg->sensor_en_mask);
 
         (void)UI_Pkt_BuildNodeData(s_node_tx_payload, &nd);
         if (!prv_radio_ready_for_tx()) {
@@ -1555,6 +1698,8 @@ void ND_App_Init(void)
     s_beacon_miss_count = 0u;
     s_last_beacon_anchor_sec = 0u;
     s_sensor_ready = false;
+    s_last_sensor_valid = false;
+    prv_set_invalid_sensor_result(&s_last_sensor);
     s_last_sensor_slot_id = 0xFFFFFFFFu;
     s_last_tx_slot_id = 0xFFFFFFFFu;
     s_tx_inflight_slot_id = 0xFFFFFFFFu;
