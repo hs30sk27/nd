@@ -160,6 +160,9 @@ static bool prv_format_setting_ascii(uint8_t value, char unit, uint8_t out_setti
 static void prv_request_immediate_beacon_scan(void);
 static void prv_start_test_session_from_cmd(void);
 static void prv_stop_test_session(void);
+static void prv_clear_pending_runtime_rx_events(void);
+static bool prv_abort_beacon_rx_for_tx(void);
+static void prv_suspend_runtime_rx_around_tx(void);
 
 static bool s_boot_listen_active = false;
 static uint32_t s_boot_listen_deadline_ms = 0u;
@@ -630,8 +633,40 @@ static void prv_start_tx_watchdog(void)
     (void)UTIL_TIMER_Start(&s_tmr_tx_watchdog);
 }
 
+static void prv_clear_pending_runtime_rx_events(void)
+{
+    s_evt_flags &= ~(ND_EVT_BEACON_LISTEN_START | ND_EVT_REMINDER_LISTEN_START);
+    (void)UTIL_TIMER_Stop(&s_tmr_beacon_sched);
+    (void)UTIL_TIMER_Stop(&s_tmr_reminder_sched);
+}
+
+static bool prv_abort_beacon_rx_for_tx(void)
+{
+    if (s_state != ND_STATE_RX_BEACON) {
+        return false;
+    }
+
+    if (Radio.Sleep != NULL) {
+        Radio.Sleep();
+    }
+
+    s_state = ND_STATE_IDLE;
+    s_rx_reason = ND_RX_REASON_NONE;
+    s_rx_window_deadline_ms = 0u;
+    UI_LPM_UnlockStop();
+    return true;
+}
+
+static void prv_suspend_runtime_rx_around_tx(void)
+{
+    if (!s_boot_listen_active) {
+        prv_clear_pending_runtime_rx_events();
+    }
+}
+
 static void prv_refresh_runtime_timers_after_tx(void)
 {
+    prv_clear_pending_runtime_rx_events();
     prv_continue_boot_listen_or_schedule();
     if (s_runtime_enabled) {
         prv_schedule_reminder_window();
@@ -1800,6 +1835,10 @@ void ND_App_Process(void)
         now_sec = (uint32_t)(due_tx_centi / 100u);
         tx_slot_id = prv_periodic_slot_id_from_epoch_sec(now_sec, period, tx_off);
 
+        if (s_state == ND_STATE_RX_BEACON) {
+            (void)prv_abort_beacon_rx_for_tx();
+        }
+
         if (s_state != ND_STATE_IDLE) {
             retry_scheduled = prv_schedule_short_tx_retry(period, tx_off);
             if (!retry_scheduled) {
@@ -1867,6 +1906,7 @@ void ND_App_Process(void)
         }
 
         freq_anchor_sec = prv_get_data_freq_anchor_sec(now_sec);
+        prv_suspend_runtime_rx_around_tx();
         UI_LPM_LockStop();
         s_state = ND_STATE_TX_DATA;
         s_tx_inflight_slot_id = tx_slot_id;
