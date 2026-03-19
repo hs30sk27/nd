@@ -25,7 +25,7 @@
 #include "usart_if.h"
 
 /* USER CODE BEGIN Includes */
-
+#include "ui_lpm.h"
 /* USER CODE END Includes */
 
 /* External variables ---------------------------------------------------------*/
@@ -126,6 +126,7 @@ void PWR_ExitStopMode(void)
 #endif
   SystemClock_Config();
   HAL_ResumeTick();
+  UI_LPM_AfterStop_ReInitPeripherals();
   /* USER CODE END ExitStopMode_2 */
 }
 
