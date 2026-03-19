@@ -17,6 +17,7 @@ __weak void UI_Hook_OnTimeChanged(void) {}
 __weak void UI_Hook_OnBeaconOnceRequested(void) {}
 __weak void UI_Hook_OnBleEndRequested(void) {}
 __weak bool UI_Hook_OnTestStartRequested(void) { return false; }
+__weak bool UI_Hook_OnSyncRequested(void) { return false; }
 
 /* -------------------------------------------------------------------------- */
 static void prv_send_ok(void)
@@ -173,6 +174,13 @@ static void prv_send_setting_read(void)
     UI_UART_SendString(line);
 }
 
+static void prv_apply_nd_ble_name(uint8_t node_num)
+{
+    char ble_name[16];
+    (void)snprintf(ble_name, sizeof(ble_name), "BT ND %02u", (unsigned)node_num);
+    (void)UI_BLE_ApplyDeviceName(ble_name);
+}
+
 void UI_Cmd_ProcessLine(const char* line_in)
 {
     if (line_in == NULL) { return; }
@@ -289,7 +297,10 @@ void UI_Cmd_ProcessLine(const char* line_in)
         if (v < UI_MAX_NODES)
         {
             UI_SetNodeNum(v);
-            (void)prv_commit_config_changed();
+            if (prv_commit_config_changed())
+            {
+                prv_apply_nd_ble_name(v);
+            }
         }
         else
         {
@@ -362,6 +373,20 @@ void UI_Cmd_ProcessLine(const char* line_in)
         /* ND 로컬 테스트/정상 주기 설정 */
         UI_SetSetting(v, unit);
         (void)prv_commit_config_changed();
+        return;
+    }
+
+    /* -------------------- SYNC --------------------------- */
+    if (prv_cmd_equals_relaxed(p, "SYNC"))
+    {
+        if (UI_Hook_OnSyncRequested())
+        {
+            prv_send_ok();
+        }
+        else
+        {
+            prv_send_error();
+        }
         return;
     }
 

@@ -8,6 +8,8 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include <stdio.h>
+#include <string.h>
 
 /* -------------------------------------------------------------------------- */
 /* 내부 상태 */
@@ -26,6 +28,9 @@ static uint32_t s_bt_on_tick_ms = 0;
 static UTIL_TIMER_Object_t s_tmr_timeout;
 static UTIL_TIMER_Object_t s_tmr_led;
 static UTIL_TIMER_Object_t s_tmr_uart_init;
+
+static char s_ble_name_cmd_buf[48];
+static char s_ble_name_cmd_alt_buf[48];
 
 static void prv_hw_set_bt(bool on)
 {
@@ -207,6 +212,39 @@ void UI_BLE_EnableForMs(uint32_t duration_ms)
     (void)UTIL_TIMER_Start(&s_tmr_timeout);
 #else
     (void)duration_ms;
+#endif
+}
+
+bool UI_BLE_ApplyDeviceName(const char* name_ascii)
+{
+#if UI_HAVE_BT_EN
+    if ((name_ascii == NULL) || (*name_ascii == '\0')) {
+        return false;
+    }
+
+    UI_BLE_Disable();
+    HAL_Delay(80u);
+    UI_BLE_EnableForMs(UI_BLE_ACTIVE_MS);
+    UI_BLE_EnsureSerialReady();
+    HAL_Delay(UI_BLE_AT_CMD_DELAY_MS);
+
+    UI_UART_SendString("AT\r\n");
+    HAL_Delay(40u);
+
+    (void)snprintf(s_ble_name_cmd_buf, sizeof(s_ble_name_cmd_buf), "AT+NAME%s\r\n", name_ascii);
+    UI_UART_SendString(s_ble_name_cmd_buf);
+    HAL_Delay(40u);
+
+    (void)snprintf(s_ble_name_cmd_alt_buf, sizeof(s_ble_name_cmd_alt_buf), "AT+NAME=%s\r\n", name_ascii);
+    UI_UART_SendString(s_ble_name_cmd_alt_buf);
+    HAL_Delay(40u);
+
+    UI_UART_SendString("AT+RESET\r\n");
+    HAL_Delay(80u);
+    return true;
+#else
+    (void)name_ascii;
+    return false;
 #endif
 }
 

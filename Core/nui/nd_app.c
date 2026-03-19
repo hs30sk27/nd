@@ -38,6 +38,7 @@ typedef enum {
     ND_RX_REASON_MAIN,
     ND_RX_REASON_REMINDER,
     ND_RX_REASON_SEARCH,
+    ND_RX_REASON_SYNC,
 } ND_RxReason_t;
 
 typedef enum {
@@ -69,6 +70,7 @@ static volatile uint32_t s_evt_flags = 0;
 #define ND_EVT_REMINDER_LISTEN_START  (1u << 4)
 #define ND_EVT_TX_RECOVER             (1u << 5)
 #define ND_EVT_TEST_SESSION_EXPIRE     (1u << 6)
+#define ND_EVT_SYNC_START              (1u << 7)
 
 static bool s_beacon_ok = false;
 static uint16_t s_beacon_cnt = 0;
@@ -82,6 +84,9 @@ static ND_SensorResult_t s_last_sensor;
 static bool s_sensor_ready = false;
 static bool s_last_sensor_valid = false;
 static uint8_t s_node_tx_payload[UI_NODE_PAYLOAD_LEN];
+static uint8_t s_sync_req_tx_payload[UI_NODE_PAYLOAD_LEN];
+static bool s_sync_cmd_active = false;
+static bool s_sync_tx_wait_beacon_pending = false;
 static uint32_t s_last_sensor_slot_id = 0xFFFFFFFFu;
 static uint32_t s_last_tx_slot_id = 0xFFFFFFFFu;
 static uint32_t s_tx_inflight_slot_id = 0xFFFFFFFFu;
@@ -114,6 +119,7 @@ static char s_test_session_restore_unit = 'H';
 #define ND_SYNC_PHASE_WALK_MAX_MISS       (24u)
 #define ND_PHASE_WALK_RX_WINDOW_MS        (1500u)
 #define ND_SEARCH_RX_WINDOW_MS            (2000u)
+#define ND_SYNC_CMD_RX_WINDOW_MS          (5000u)
 #define ND_SEARCH_SCAN_INTERVAL_MS_BASE   (90000u)
 #define ND_SEARCH_SCAN_INTERVAL_MS_JITTER (30000u)
 #define ND_SYNC_BKP_MAGIC                 (0x4E445359u)
@@ -570,6 +576,79 @@ static void prv_send_test_result_ble(const ND_SensorResult_t* r)
                    (unsigned)r->adc,
                    (unsigned long)r->pulse_cnt);
     UI_UART_SendString(msg);
+}
+
+static bool prv_build_sync_request_payload(uint8_t out_payload[UI_NODE_PAYLOAD_LEN])
+{
+    const UI_Config_t *cfg = UI_GetConfig();
+    UI_NodeData_t nd;
+
+    if ((cfg == NULL) || (out_payload == NULL)) {
+        return false;
+    }
+
+    memset(&nd, 0, sizeof(nd));
+    nd.node_num = 0xAAu;
+    memcpy(nd.net_id, cfg->net_id, UI_NET_ID_LEN);
+    nd.batt_lvl = UI_NODE_BATT_LVL_INVALID;
+    nd.temp_c = UI_NODE_TEMP_INVALID_C;
+    nd.beacon_cnt = s_beacon_cnt;
+    nd.x = (int16_t)0xFFFFu;
+    nd.y = (int16_t)0xFFFFu;
+    nd.z = (int16_t)0xFFFFu;
+    nd.adc = 0xFFFFu;
+    nd.pulse_cnt = 0xFFFFFFFFu;
+    nd.sensor_en_mask = 0u;
+    (void)UI_Pkt_BuildNodeData(out_payload, &nd);
+    return true;
+}
+
+static bool prv_start_sync_request_tx(void)
+{
+    if (s_state == ND_STATE_RX_BEACON) {
+        (void)prv_abort_beacon_rx_for_tx();
+    }
+    if (s_state != ND_STATE_IDLE) {
+        return false;
+    }
+    if (!prv_build_sync_request_payload(s_sync_req_tx_payload)) {
+        return false;
+    }
+    prv_stop_sensor_and_tx_timers();
+    prv_clear_pending_runtime_rx_events();
+    (void)UTIL_TIMER_Stop(&s_tmr_boot_listen);
+    s_boot_listen_active = false;
+    s_boot_listen_deadline_ms = 0u;
+    s_runtime_enabled = false;
+    s_sensor_ready = false;
+    s_sync_cmd_active = true;
+    s_sync_tx_wait_beacon_pending = false;
+
+    if (!prv_radio_ready_for_tx()) {
+        UI_Radio_MarkRecoverNeeded();
+        if (Radio.Sleep != NULL) {
+            Radio.Sleep();
+        }
+        s_sync_cmd_active = false;
+        return false;
+    }
+    if (!UI_Radio_PrepareTx(UI_NODE_PAYLOAD_LEN)) {
+        UI_Radio_MarkRecoverNeeded();
+        if (Radio.Sleep != NULL) {
+            Radio.Sleep();
+        }
+        s_sync_cmd_active = false;
+        return false;
+    }
+
+    UI_LPM_LockStop();
+    s_state = ND_STATE_TX_DATA;
+    s_tx_inflight_slot_id = 0xFFFFFFFFu;
+    s_sync_tx_wait_beacon_pending = true;
+    prv_start_tx_watchdog();
+    Radio.SetChannel(UI_RF_GetBeaconFreqHz());
+    Radio.Send(s_sync_req_tx_payload, UI_NODE_PAYLOAD_LEN);
+    return true;
 }
 
 static void prv_tmr_boot_cb(void *context)
@@ -1663,6 +1742,16 @@ bool UI_Hook_OnTestStartRequested(void)
     return measure_ok;
 }
 
+bool UI_Hook_OnSyncRequested(void)
+{
+    if (!s_inited) {
+        return false;
+    }
+    s_evt_flags |= ND_EVT_SYNC_START;
+    UTIL_SEQ_SetTask(UI_TASK_BIT_ND_MAIN, 0);
+    return true;
+}
+
 void ND_App_Process(void)
 {
     if (!s_inited) {
@@ -1716,6 +1805,13 @@ void ND_App_Process(void)
 
     if ((ev & ND_EVT_REMINDER_LISTEN_START) != 0u) {
         s_evt_flags &= ~ND_EVT_REMINDER_LISTEN_START;
+        prv_reschedule_main_if_pending();
+        return;
+    }
+
+    if ((ev & ND_EVT_SYNC_START) != 0u) {
+        s_evt_flags &= ~ND_EVT_SYNC_START;
+        (void)prv_start_sync_request_tx();
         prv_reschedule_main_if_pending();
         return;
     }
@@ -1958,14 +2054,39 @@ void ND_App_Init(void)
     s_boot_listen_deadline_ms = 0u;
     s_rx_window_deadline_ms = 0u;
     s_rx_reason = ND_RX_REASON_NONE;
+    s_sync_cmd_active = false;
+    s_sync_tx_wait_beacon_pending = false;
     s_inited = true;
 
-    s_evt_flags |= ND_EVT_BOOT_LISTEN_START;
-    UTIL_SEQ_SetTask(UI_TASK_BIT_ND_MAIN, 0);
+    if (!prv_try_enter_holdover_from_backup()) {
+        prv_enter_unsync_search();
+    } else {
+        prv_schedule_beacon_window();
+        if (s_runtime_enabled) {
+            prv_schedule_reminder_window();
+            prv_schedule_sensor_and_tx();
+        } else {
+            prv_stop_sensor_and_tx_timers();
+        }
+    }
 }
 
 void ND_Radio_OnTxDone(void)
 {
+    if (s_sync_tx_wait_beacon_pending) {
+        prv_stop_tx_watchdog();
+        UI_Radio_EnterSleep();
+        s_state = ND_STATE_IDLE;
+        s_tx_inflight_slot_id = 0xFFFFFFFFu;
+        UI_LPM_UnlockStop();
+        s_sync_tx_wait_beacon_pending = false;
+        if (!prv_start_beacon_rx(ND_SYNC_CMD_RX_WINDOW_MS, ND_RX_REASON_SYNC)) {
+            s_sync_cmd_active = false;
+            prv_enter_unsync_search();
+        }
+        UTIL_SEQ_SetTask(UI_TASK_BIT_ND_MAIN, 0);
+        return;
+    }
     prv_force_tx_recovery(true);
     UTIL_SEQ_SetTask(UI_TASK_BIT_ND_MAIN, 0);
 }
@@ -1984,6 +2105,14 @@ void ND_Radio_OnTxTimeout(void)
     s_state = ND_STATE_IDLE;
     s_tx_inflight_slot_id = 0xFFFFFFFFu;
     UI_LPM_UnlockStop();
+
+    if (s_sync_tx_wait_beacon_pending || s_sync_cmd_active) {
+        s_sync_tx_wait_beacon_pending = false;
+        s_sync_cmd_active = false;
+        prv_enter_unsync_search();
+        UTIL_SEQ_SetTask(UI_TASK_BIT_ND_MAIN, 0);
+        return;
+    }
 
     if (prv_get_tx_retry_params(&period_sec, &tx_off_sec)) {
         retry_scheduled = prv_schedule_short_tx_retry(period_sec, tx_off_sec);
@@ -2015,6 +2144,11 @@ void ND_Radio_OnRxDone(uint8_t *payload, uint16_t size, int16_t rssi, int8_t snr
         if (prv_restart_current_rx_window()) {
             return;
         }
+        if (s_rx_reason == ND_RX_REASON_SYNC) {
+            s_sync_cmd_active = false;
+            prv_enter_unsync_search();
+            return;
+        }
         if (s_rx_reason == ND_RX_REASON_MAIN) {
             prv_note_main_beacon_miss();
         }
@@ -2024,6 +2158,11 @@ void ND_Radio_OnRxDone(uint8_t *payload, uint16_t size, int16_t rssi, int8_t snr
 
     if (memcmp(beacon.net_id, cfg->net_id, UI_NET_ID_LEN) != 0) {
         if (prv_restart_current_rx_window()) {
+            return;
+        }
+        if (s_rx_reason == ND_RX_REASON_SYNC) {
+            s_sync_cmd_active = false;
+            prv_enter_unsync_search();
             return;
         }
         if (s_rx_reason == ND_RX_REASON_MAIN) {
@@ -2038,6 +2177,7 @@ void ND_Radio_OnRxDone(uint8_t *payload, uint16_t size, int16_t rssi, int8_t snr
     UI_Time_SetEpochCenti2016(beacon_epoch_centi);
     prv_apply_setting_ascii(beacon.setting_ascii);
     s_beacon_cnt++;
+    s_sync_cmd_active = false;
     prv_enter_locked_from_beacon(&beacon);
     prv_continue_boot_listen_or_schedule();
 }
@@ -2052,6 +2192,11 @@ void ND_Radio_OnRxTimeout(void)
     s_state = ND_STATE_IDLE;
     UI_LPM_UnlockStop();
 
+    if (s_rx_reason == ND_RX_REASON_SYNC) {
+        s_sync_cmd_active = false;
+        prv_enter_unsync_search();
+        return;
+    }
     if (s_rx_reason == ND_RX_REASON_MAIN) {
         prv_note_main_beacon_miss();
     } else if (s_rx_reason == ND_RX_REASON_SEARCH) {
@@ -2070,6 +2215,11 @@ void ND_Radio_OnRxError(void)
     s_state = ND_STATE_IDLE;
     UI_LPM_UnlockStop();
 
+    if (s_rx_reason == ND_RX_REASON_SYNC) {
+        s_sync_cmd_active = false;
+        prv_enter_unsync_search();
+        return;
+    }
     if (prv_restart_current_rx_window()) {
         return;
     }

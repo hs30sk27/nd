@@ -31,6 +31,9 @@ void UI_BLE_Disable(void);
 
 bool UI_BLE_IsActive(void);
 
+/* DX-BT05 이름 변경: 예) "BT ND 01" */
+bool UI_BLE_ApplyDeviceName(const char* name_ascii);
+
 /*
  * BLE 전원 ON 직후 UART init 지연을 강제한다.
  * - 메인 컨텍스트에서만 호출
