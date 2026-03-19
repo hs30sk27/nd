@@ -363,6 +363,190 @@ static void prv_merge_sensor_result(ND_SensorResult_t* dst, const ND_SensorResul
     }
 }
 
+static void prv_fill_node_data_from_sensor(UI_NodeData_t* nd,
+                                           const UI_Config_t* cfg,
+                                           const ND_SensorResult_t* sensor,
+                                           uint16_t beacon_cnt)
+{
+    uint8_t cfg_mask;
+
+    if ((nd == NULL) || (cfg == NULL) || (sensor == NULL)) {
+        return;
+    }
+
+    cfg_mask = (uint8_t)(cfg->sensor_en_mask & UI_SENSOR_EN_ALL);
+
+    memset(nd, 0, sizeof(*nd));
+    nd->node_num = cfg->node_num;
+    memcpy(nd->net_id, cfg->net_id, UI_NET_ID_LEN);
+    nd->batt_lvl = sensor->batt_lvl;
+    nd->temp_c = sensor->temp_c;
+    nd->beacon_cnt = beacon_cnt;
+
+    if ((cfg_mask & UI_SENSOR_EN_ICM20948) != 0u) {
+        nd->x = sensor->x;
+        nd->y = sensor->y;
+        nd->z = sensor->z;
+    } else {
+        nd->x = (int16_t)0xFFFFu;
+        nd->y = (int16_t)0xFFFFu;
+        nd->z = (int16_t)0xFFFFu;
+    }
+
+    if ((cfg_mask & UI_SENSOR_EN_ADC) != 0u) {
+        nd->adc = sensor->adc;
+    } else {
+        nd->adc = 0xFFFFu;
+    }
+
+    if ((cfg_mask & UI_SENSOR_EN_PULSE) != 0u) {
+        nd->pulse_cnt = sensor->pulse_cnt;
+    } else {
+        nd->pulse_cnt = 0xFFFFFFFFu;
+    }
+
+    nd->sensor_en_mask = prv_build_effective_sensor_mask(sensor, cfg_mask);
+}
+
+static bool prv_node_data_equal(const UI_NodeData_t* a, const UI_NodeData_t* b)
+{
+    if ((a == NULL) || (b == NULL)) {
+        return false;
+    }
+
+    return (a->node_num == b->node_num)
+        && (memcmp(a->net_id, b->net_id, UI_NET_ID_LEN) == 0)
+        && (a->batt_lvl == b->batt_lvl)
+        && (a->temp_c == b->temp_c)
+        && (a->beacon_cnt == b->beacon_cnt)
+        && (a->x == b->x)
+        && (a->y == b->y)
+        && (a->z == b->z)
+        && (a->adc == b->adc)
+        && (a->pulse_cnt == b->pulse_cnt)
+        && (a->sensor_en_mask == b->sensor_en_mask);
+}
+
+static bool prv_sensor_result_matches_node_data(const ND_SensorResult_t* sensor,
+                                                const UI_NodeData_t* nd,
+                                                uint8_t cfg_mask)
+{
+    if ((sensor == NULL) || (nd == NULL)) {
+        return false;
+    }
+
+    if ((sensor->batt_lvl != nd->batt_lvl) ||
+        (sensor->temp_c != nd->temp_c)) {
+        return false;
+    }
+
+    if ((cfg_mask & UI_SENSOR_EN_ICM20948) != 0u) {
+        if ((sensor->x != nd->x) || (sensor->y != nd->y) || (sensor->z != nd->z)) {
+            return false;
+        }
+    } else if ((nd->x != (int16_t)0xFFFFu) ||
+               (nd->y != (int16_t)0xFFFFu) ||
+               (nd->z != (int16_t)0xFFFFu)) {
+        return false;
+    }
+
+    if ((cfg_mask & UI_SENSOR_EN_ADC) != 0u) {
+        if (sensor->adc != nd->adc) {
+            return false;
+        }
+    } else if (nd->adc != 0xFFFFu) {
+        return false;
+    }
+
+    if ((cfg_mask & UI_SENSOR_EN_PULSE) != 0u) {
+        if (sensor->pulse_cnt != nd->pulse_cnt) {
+            return false;
+        }
+    } else if (nd->pulse_cnt != 0xFFFFFFFFu) {
+        return false;
+    }
+
+    if (nd->sensor_en_mask != prv_build_effective_sensor_mask(sensor, cfg_mask)) {
+        return false;
+    }
+
+    return true;
+}
+
+static bool prv_build_verified_node_payload(const UI_Config_t* cfg,
+                                            const ND_SensorResult_t* sensor,
+                                            uint16_t beacon_cnt,
+                                            uint8_t out_payload[UI_NODE_PAYLOAD_LEN],
+                                            UI_NodeData_t* out_nd)
+{
+    UI_NodeData_t expected;
+    UI_NodeData_t parsed;
+    uint8_t cfg_mask;
+
+    if ((cfg == NULL) || (sensor == NULL) || (out_payload == NULL)) {
+        return false;
+    }
+
+    cfg_mask = (uint8_t)(cfg->sensor_en_mask & UI_SENSOR_EN_ALL);
+
+    prv_fill_node_data_from_sensor(&expected, cfg, sensor, beacon_cnt);
+    memset(out_payload, 0, UI_NODE_PAYLOAD_LEN);
+    (void)UI_Pkt_BuildNodeData(out_payload, &expected);
+
+    memset(&parsed, 0, sizeof(parsed));
+    if (!UI_Pkt_ParseNodeData(out_payload, UI_NODE_PAYLOAD_LEN, &parsed)) {
+        return false;
+    }
+
+    if (!prv_node_data_equal(&expected, &parsed)) {
+        return false;
+    }
+
+    if (!prv_sensor_result_matches_node_data(sensor, &parsed, cfg_mask)) {
+        return false;
+    }
+
+    if (out_nd != NULL) {
+        *out_nd = parsed;
+    }
+
+    return true;
+}
+
+static bool prv_reload_sensor_snapshot_for_tx(uint8_t cfg_mask, ND_SensorResult_t* out_sensor)
+{
+    ND_SensorResult_t measured;
+    ND_SensorResult_t merged;
+    bool measure_ok;
+
+    prv_set_invalid_sensor_result(&measured);
+    measure_ok = ND_Sensors_MeasureAll(&measured, cfg_mask);
+    if (!measure_ok) {
+        return false;
+    }
+
+    if (s_last_sensor_valid) {
+        merged = s_last_sensor;
+    } else {
+        prv_set_invalid_sensor_result(&merged);
+    }
+
+    prv_merge_sensor_result(&merged, &measured, cfg_mask);
+    s_last_sensor = merged;
+    s_last_sensor_valid = prv_sensor_result_has_any_valid(&s_last_sensor, cfg_mask);
+    s_sensor_ready = s_last_sensor_valid;
+
+    if (!s_last_sensor_valid) {
+        return false;
+    }
+
+    if (out_sensor != NULL) {
+        *out_sensor = s_last_sensor;
+    }
+
+    return true;
+}
+
 static void prv_send_test_result_ble(const ND_SensorResult_t* r)
 {
     const char* batt_text;
@@ -1568,6 +1752,7 @@ void ND_App_Process(void)
         const UI_Config_t *cfg;
         UI_NodeData_t nd;
         ND_SensorResult_t tx_sensor;
+        ND_SensorResult_t reload_sensor;
         uint64_t now_centi;
         uint64_t due_tx_centi;
         uint32_t now_sec;
@@ -1576,8 +1761,11 @@ void ND_App_Process(void)
         uint32_t tx_slot_id;
         uint32_t freq_anchor_sec;
         bool retry_scheduled;
+        bool payload_ready;
+        uint8_t cfg_mask;
 
         cfg = UI_GetConfig();
+        cfg_mask = (uint8_t)(cfg->sensor_en_mask & UI_SENSOR_EN_ALL);
         now_centi = UI_Time_NowCenti2016();
         now_sec = (uint32_t)(now_centi / 100u);
         period = s_test_mode ? 60u : prv_get_normal_cycle_sec();
@@ -1597,7 +1785,7 @@ void ND_App_Process(void)
         if (!s_sensor_ready && !s_last_sensor_valid) {
             prv_set_invalid_sensor_result(&tx_sensor);
         }
-        if ((cfg->sensor_en_mask & UI_SENSOR_EN_PULSE) != 0u) {
+        if ((cfg_mask & UI_SENSOR_EN_PULSE) != 0u) {
             tx_sensor.pulse_cnt = UI_GPIO_GetPulseCount();
         } else {
             tx_sensor.pulse_cnt = 0xFFFFFFFFu;
@@ -1621,20 +1809,38 @@ void ND_App_Process(void)
             return;
         }
 
-        memset(&nd, 0, sizeof(nd));
-        nd.node_num = cfg->node_num;
-        memcpy(nd.net_id, cfg->net_id, UI_NET_ID_LEN);
-        nd.batt_lvl = tx_sensor.batt_lvl;
-        nd.temp_c = tx_sensor.temp_c;
-        nd.beacon_cnt = s_beacon_cnt;
-        nd.x = tx_sensor.x;
-        nd.y = tx_sensor.y;
-        nd.z = tx_sensor.z;
-        nd.adc = tx_sensor.adc;
-        nd.pulse_cnt = tx_sensor.pulse_cnt;
-        nd.sensor_en_mask = prv_build_effective_sensor_mask(&tx_sensor, cfg->sensor_en_mask);
+        payload_ready = prv_build_verified_node_payload(cfg,
+                                                        &tx_sensor,
+                                                        s_beacon_cnt,
+                                                        s_node_tx_payload,
+                                                        &nd);
+        if (!payload_ready) {
+            if (prv_reload_sensor_snapshot_for_tx(cfg_mask, &reload_sensor)) {
+                if ((cfg_mask & UI_SENSOR_EN_PULSE) != 0u) {
+                    reload_sensor.pulse_cnt = UI_GPIO_GetPulseCount();
+                } else {
+                    reload_sensor.pulse_cnt = 0xFFFFFFFFu;
+                }
+                payload_ready = prv_build_verified_node_payload(cfg,
+                                                                &reload_sensor,
+                                                                s_beacon_cnt,
+                                                                s_node_tx_payload,
+                                                                &nd);
+                if (payload_ready) {
+                    tx_sensor = reload_sensor;
+                }
+            }
+        }
 
-        (void)UI_Pkt_BuildNodeData(s_node_tx_payload, &nd);
+        if (!payload_ready) {
+            retry_scheduled = prv_schedule_short_tx_retry(period, tx_off);
+            if (!retry_scheduled) {
+                prv_schedule_sensor_and_tx();
+            }
+            prv_reschedule_main_if_pending();
+            return;
+        }
+
         if (!prv_radio_ready_for_tx()) {
             UI_Radio_MarkRecoverNeeded();
             if (Radio.Sleep != NULL) {
