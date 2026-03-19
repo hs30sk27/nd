@@ -98,10 +98,11 @@ int main(void)
   MX_GPIO_Init();
   MX_DMA_Init();
   MX_SPI1_Init();
-  MX_USART1_UART_Init();
   MX_SubGHz_Phy_Init();
   MX_ADC_Init();
   /* USER CODE BEGIN 2 */
+
+  (void)HAL_DMA_DeInit(&hdma_usart1_tx);
 
 
   /* USER CODE END 2 */
@@ -454,14 +455,16 @@ void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_PULLUP;
   HAL_GPIO_Init(ICM20948_INT_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : OP_KEY_Pin PULSE_IN_Pin TEST_KEY_Pin */
-  GPIO_InitStruct.Pin = OP_KEY_Pin|PULSE_IN_Pin|TEST_KEY_Pin;
+  /*Configure GPIO pins : OP_KEY_Pin TEST_KEY_Pin */
+  GPIO_InitStruct.Pin = OP_KEY_Pin|TEST_KEY_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
   GPIO_InitStruct.Pull = GPIO_PULLUP;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : PA2 PA3 PA10 PA11 */
-  GPIO_InitStruct.Pin = GPIO_PIN_2|GPIO_PIN_3|GPIO_PIN_10|GPIO_PIN_11;
+  /*Configure GPIO pins : PA2 PA3 PA10 PA11
+                           PA13 PA14 */
+  GPIO_InitStruct.Pin = GPIO_PIN_2|GPIO_PIN_3|GPIO_PIN_10|GPIO_PIN_11
+                          |GPIO_PIN_13|GPIO_PIN_14;
   GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
@@ -487,11 +490,17 @@ void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOH, &GPIO_InitStruct);
 
-  /*Configure GPIO pin : TH_Pin */
-  GPIO_InitStruct.Pin = TH_Pin;
+  /*Configure GPIO pin : PB2 */
+  GPIO_InitStruct.Pin = GPIO_PIN_2;
   GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(TH_GPIO_Port, &GPIO_InitStruct);
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : PULSE_IN_Pin */
+  GPIO_InitStruct.Pin = PULSE_IN_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(PULSE_IN_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pin : BT_EN_Pin */
   GPIO_InitStruct.Pin = BT_EN_Pin;

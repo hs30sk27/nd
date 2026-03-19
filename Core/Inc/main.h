@@ -106,8 +106,6 @@ void MX_ADC_Init(void);
 #define ADC_EN_GPIO_Port GPIOA
 #define BATT_LVL_Pin GPIO_PIN_9
 #define BATT_LVL_GPIO_Port GPIOA
-#define TH_Pin GPIO_PIN_2
-#define TH_GPIO_Port GPIOB
 #define ADC_CS_Pin GPIO_PIN_12
 #define ADC_CS_GPIO_Port GPIOB
 #define PULSE_IN_Pin GPIO_PIN_12

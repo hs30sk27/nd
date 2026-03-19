@@ -92,12 +92,7 @@ void PWR_ExitOffMode(void)
 void PWR_EnterStopMode(void)
 {
   /* USER CODE BEGIN EnterStopMode_1 */
-    GPIO_InitTypeDef GPIO_InitStruct = {0};
-
-    (void)HAL_ADC_Stop(&hadc);
-
-	UI_LPM_BeforeStop_DeInitPeripherals();
-	UI_UART1_TxDma_DeInit();
+  UI_LPM_BeforeStop_DeInitPeripherals();
 
   /* USER CODE END EnterStopMode_1 */
   HAL_SuspendTick();
@@ -107,9 +102,9 @@ void PWR_EnterStopMode(void)
   /* USER CODE BEGIN EnterStopMode_2 */
 
   /* USER CODE END EnterStopMode_2 */
-
+  HAL_PWREx_EnterSTOP2Mode(PWR_STOPENTRY_WFI);
   /* USER CODE BEGIN EnterStopMode_3 */
-  HAL_PWREx_EnterSTOP1Mode(PWR_STOPENTRY_WFI);
+
   /* USER CODE END EnterStopMode_3 */
 }
 

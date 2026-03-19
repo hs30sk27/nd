@@ -96,13 +96,6 @@ static void prv_disable_adc_clock(const ADC_HandleTypeDef *hadc_ptr)
         return;
     }
 # endif
-# if defined(ADC1) && defined(__HAL_RCC_ADC_CLK_DISABLE)
-    if ((hadc_ptr != NULL) && (hadc_ptr->Instance == ADC1))
-    {
-        __HAL_RCC_ADC_CLK_DISABLE();
-        return;
-    }
-# endif
 #endif
 }
 
@@ -169,21 +162,16 @@ void UI_LPM_BeforeStop_DeInitPeripherals(void)
     UI_GPIO_ClearEvents();
     UI_UART_ResetRxBuffer();
     UI_BLE_ClearFlagsBeforeStop();
-
-#if defined(HAL_ADC_MODULE_ENABLED)
+    (void)HAL_ADC_Stop(&hadc);
     (void)HAL_ADC_DeInit(&hadc);
-    prv_disable_adc_clock(&hadc);
-#endif
+    __HAL_RCC_ADC_CLK_DISABLE();
 
-#if defined(HAL_UART_MODULE_ENABLED)
+    (void)HAL_UARTEx_EnableStopMode(&huart1);
+
     (void)HAL_UART_DeInit(&huart1);
-    prv_disable_uart_clock(&huart1);
-#endif
-
-#if defined(HAL_SPI_MODULE_ENABLED)
+    __HAL_RCC_USART1_CLK_DISABLE();
     (void)HAL_SPI_DeInit(&hspi1);
-    prv_disable_spi_clock(&hspi1);
-#endif
+    __HAL_RCC_SPI1_CLK_DISABLE();
 }
 
 void UI_LPM_AfterStop_ReInitPeripherals(void)
