@@ -169,6 +169,7 @@ static void prv_stop_test_session(void);
 static void prv_clear_pending_runtime_rx_events(void);
 static bool prv_abort_beacon_rx_for_tx(void);
 static void prv_suspend_runtime_rx_around_tx(void);
+static void prv_start_tx_watchdog(void);
 
 static bool s_boot_listen_active = false;
 static uint32_t s_boot_listen_deadline_ms = 0u;
