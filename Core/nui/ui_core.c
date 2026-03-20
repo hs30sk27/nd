@@ -188,6 +188,7 @@ static void UI_TaskMain(void)
         }
         else
         {
+            ND_App_OnBleSessionStart();
             UI_BLE_EnableForMs(UI_BLE_ACTIVE_MS);
         }
     }

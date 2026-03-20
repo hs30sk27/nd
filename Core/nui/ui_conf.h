@@ -173,7 +173,7 @@
 #define UI_SLOT_DURATION_MS          (2000u)   /* 노드별 2초 슬롯 */
 
 /* Node 전원 인가 후 Beacon 수신 대기 시간 */
-#define UI_ND_BOOT_LISTEN_MS         (360000u) /* 6분 */
+#define UI_ND_BOOT_LISTEN_MS         (310000u) /* 5분 10초 */
 
 /* Node 센서 체크 시작 시각 */
 #define UI_ND_SENSOR_START_S_NORMAL  (6u)      /* 00분06초 */
