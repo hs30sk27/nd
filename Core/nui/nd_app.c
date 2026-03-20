@@ -71,6 +71,9 @@ static volatile uint32_t s_evt_flags = 0;
 #define ND_EVT_TX_RECOVER             (1u << 5)
 #define ND_EVT_TEST_SESSION_EXPIRE     (1u << 6)
 #define ND_EVT_SYNC_START              (1u << 7)
+#define ND_EVT_SYNC_DONE_NOTIFY        (1u << 8)
+
+#define ND_SYNC_DONE_NOTIFY_STR        "<SYNC DONE>\r\n"
 
 static bool s_beacon_ok = false;
 static uint16_t s_beacon_cnt = 0;
@@ -582,6 +585,16 @@ static void prv_send_test_result_ble(const ND_SensorResult_t* r)
                    (unsigned)r->adc,
                    (unsigned long)r->pulse_cnt);
     UI_UART_SendString(msg);
+}
+
+static void prv_notify_sync_done_and_request_stop(void)
+{
+    if (UI_BLE_IsActive()) {
+        UI_BLE_EnsureSerialReady();
+        UI_UART_SendString(ND_SYNC_DONE_NOTIFY_STR);
+    }
+
+    UI_BLE_RequestStopNow();
 }
 
 static bool prv_build_sync_request_payload(uint8_t out_payload[UI_NODE_PAYLOAD_LEN])
@@ -1823,6 +1836,13 @@ void ND_App_Process(void)
         return;
     }
 
+    if ((ev & ND_EVT_SYNC_DONE_NOTIFY) != 0u) {
+        s_evt_flags &= ~ND_EVT_SYNC_DONE_NOTIFY;
+        prv_notify_sync_done_and_request_stop();
+        prv_reschedule_main_if_pending();
+        return;
+    }
+
     if ((ev & ND_EVT_BOOT_LISTEN_START) != 0u) {
         s_evt_flags &= ~ND_EVT_BOOT_LISTEN_START;
         if (!s_boot_listen_active) {
@@ -2185,6 +2205,7 @@ void ND_Radio_OnRxDone(uint8_t *payload, uint16_t size, int16_t rssi, int8_t snr
     UI_Beacon_t beacon;
     const UI_Config_t *cfg = UI_GetConfig();
     uint64_t beacon_epoch_centi;
+    bool sync_done = (s_rx_reason == ND_RX_REASON_SYNC);
 
     (void)rssi;
     (void)snr;
@@ -2241,6 +2262,11 @@ void ND_Radio_OnRxDone(uint8_t *payload, uint16_t size, int16_t rssi, int8_t snr
     s_sync_cmd_active = false;
     prv_enter_locked_from_beacon(&beacon);
     prv_continue_boot_listen_or_schedule();
+
+    if (sync_done) {
+        s_evt_flags |= ND_EVT_SYNC_DONE_NOTIFY;
+        UTIL_SEQ_SetTask(UI_TASK_BIT_ND_MAIN, 0);
+    }
 }
 
 void ND_Radio_OnRxTimeout(void)
