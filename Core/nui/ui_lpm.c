@@ -115,15 +115,15 @@ static void prv_configure_deinited_pins_for_stop(void)
     __HAL_RCC_GPIOB_CLK_ENABLE();
 #endif
 
-#if defined(BATT_LVL_GPIO_Port) && defined(BATT_LVL_Pin)
-    prv_set_gpio_analog(BATT_LVL_GPIO_Port, BATT_LVL_Pin);
-#endif
+//#if defined(BATT_LVL_GPIO_Port) && defined(BATT_LVL_Pin)
+//    prv_set_gpio_analog(BATT_LVL_GPIO_Port, BATT_LVL_Pin);
+//#endif
 #if defined(ICM20948_INT_GPIO_Port) && defined(ICM20948_INT_Pin)
     prv_set_gpio_analog(ICM20948_INT_GPIO_Port, ICM20948_INT_Pin);
 #endif
-#if defined(PULSE_IN_GPIO_Port) && defined(PULSE_IN_Pin)
-    prv_set_gpio_analog(PULSE_IN_GPIO_Port, PULSE_IN_Pin);
-#endif
+//#if defined(PULSE_IN_GPIO_Port) && defined(PULSE_IN_Pin)
+//    prv_set_gpio_analog(PULSE_IN_GPIO_Port, PULSE_IN_Pin);
+//#endif
 #if defined(BLE_TX_GPIO_Port) && defined(BLE_TX_Pin)
     prv_set_gpio_analog(BLE_TX_GPIO_Port, BLE_TX_Pin);
 #endif

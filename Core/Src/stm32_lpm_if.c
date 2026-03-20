@@ -93,7 +93,7 @@ void PWR_EnterStopMode(void)
 {
   /* USER CODE BEGIN EnterStopMode_1 */
   UI_LPM_BeforeStop_DeInitPeripherals();
-
+__NOP();
   /* USER CODE END EnterStopMode_1 */
   HAL_SuspendTick();
   /* Clear Status Flag before entering STOP/STANDBY Mode */
@@ -124,9 +124,12 @@ void PWR_ExitStopMode(void)
   vcom_Resume();
   /* USER CODE BEGIN ExitStopMode_2 */
 #endif
+  __NOP();
+
   SystemClock_Config();
   HAL_ResumeTick();
   UI_LPM_AfterStop_ReInitPeripherals();
+
   /* USER CODE END ExitStopMode_2 */
 }
 

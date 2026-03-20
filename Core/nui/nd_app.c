@@ -127,10 +127,10 @@ static char s_test_session_restore_unit = 'H';
 #define ND_PHASE_WALK_RX_WINDOW_MS        (1500u)
 #define ND_SEARCH_RX_WINDOW_MS            (2000u)
 #define ND_SYNC_CMD_RX_WINDOW_MS          (5000u)
-#define ND_SYNC_NOTIFY_TX_STR             "<SYNC TX:0XAA>\r\n"
-#define ND_SYNC_NOTIFY_DONE_STR           "<SYNC DONE>\r\n"
-#define ND_SYNC_NOTIFY_TIMEOUT_STR        "<SYNC TIMEOUT>\r\n"
-#define ND_SYNC_NOTIFY_TX_FAIL_STR        "<SYNC TX FAIL>\r\n"
+#define ND_SYNC_NOTIFY_TX_STR             ""
+#define ND_SYNC_NOTIFY_DONE_STR           "SYNC OK\r\n"
+#define ND_SYNC_NOTIFY_TIMEOUT_STR        "SYNC FAIL\r\n"
+#define ND_SYNC_NOTIFY_TX_FAIL_STR        "SYNC FAIL\r\n"
 #define ND_SEARCH_SCAN_INTERVAL_MS_BASE   (90000u)
 #define ND_SEARCH_SCAN_INTERVAL_MS_JITTER (30000u)
 #define ND_SYNC_BKP_MAGIC                 (0x4E445359u)
@@ -186,12 +186,14 @@ static bool prv_abort_beacon_rx_for_tx(void);
 static void prv_suspend_runtime_rx_around_tx(void);
 static void prv_start_tx_watchdog(void);
 static void prv_request_stop_mode(void);
+static void prv_request_stop_mode_if_possible(void);
 static void prv_enter_unsynced_idle(void);
 static void prv_resume_schedule_after_boot_search(void);
 static void prv_abort_active_radio_for_ble(void);
 static bool prv_try_enter_holdover_from_backup(void);
 
 static bool s_boot_listen_active = false;
+static bool s_boot_listen_stop_after_ble = false;
 static uint32_t s_boot_listen_deadline_ms = 0u;
 static uint32_t s_rx_window_deadline_ms = 0u;
 static ND_RxReason_t s_rx_reason = ND_RX_REASON_NONE;
@@ -210,7 +212,7 @@ static bool prv_radio_ready_for_rx(void)
 
 static void prv_send_sync_status(const char *msg)
 {
-    if (msg == NULL) {
+    if ((msg == NULL) || (*msg == '\0')) {
         return;
     }
 
@@ -660,6 +662,7 @@ static bool prv_start_sync_request_tx(void)
 
     if (UI_BLE_IsActive()) {
         UI_BLE_EnableForMs(UI_BLE_ACTIVE_MS);
+        UI_BLE_EnsureSerialReady();
     }
 
     if (!prv_radio_ready_for_tx()) {
@@ -756,6 +759,24 @@ static void prv_request_stop_mode(void)
     UTIL_SEQ_SetTask(UI_TASK_BIT_ND_MAIN, 0);
 }
 
+static void prv_request_stop_mode_if_possible(void)
+{
+    if ((s_evt_flags & ND_EVT_ENTER_STOP) != 0u) {
+        return;
+    }
+    if (s_evt_flags != 0u) {
+        return;
+    }
+    if (UI_BLE_IsActive()) {
+        return;
+    }
+    if (s_state != ND_STATE_IDLE) {
+        return;
+    }
+
+    prv_request_stop_mode();
+}
+
 static void prv_abort_active_radio_for_ble(void)
 {
     if (s_state == ND_STATE_TX_DATA) {
@@ -789,12 +810,14 @@ static void prv_enter_unsynced_idle(void)
     s_sensor_ready = false;
     s_boot_listen_active = false;
     s_boot_listen_deadline_ms = 0u;
+    s_boot_listen_stop_after_ble = false;
     s_phase_walk_idx = 0u;
     s_force_gw_phase_scan = false;
     s_gw_phase_scan_cycle_count = 0u;
     (void)UTIL_TIMER_Stop(&s_tmr_boot_listen);
     prv_clear_pending_runtime_rx_events();
     prv_stop_sensor_and_tx_timers();
+    prv_request_stop_mode_if_possible();
 }
 
 static void prv_resume_schedule_after_boot_search(void)
@@ -814,6 +837,7 @@ static void prv_resume_schedule_after_boot_search(void)
     s_runtime_enabled = true;
     s_sensor_ready = false;
     s_phase_walk_idx = 0u;
+    s_boot_listen_stop_after_ble = false;
     s_force_gw_phase_scan = false;
     s_gw_phase_scan_cycle_count = 0u;
     if (s_beacon_miss_count < 1u) {
@@ -1453,6 +1477,7 @@ static void prv_schedule_unsync_search_scan(void)
     (void)UTIL_TIMER_Stop(&s_tmr_beacon_sched);
     (void)UTIL_TIMER_SetPeriod(&s_tmr_beacon_sched, delay_ms);
     (void)UTIL_TIMER_Start(&s_tmr_beacon_sched);
+    prv_request_stop_mode_if_possible();
 }
 
 static void prv_enter_unsync_search(void)
@@ -1555,6 +1580,7 @@ static void prv_schedule_short_boot_retry(void)
     (void)UTIL_TIMER_Stop(&s_tmr_boot_listen);
     (void)UTIL_TIMER_SetPeriod(&s_tmr_boot_listen, retry_ms);
     (void)UTIL_TIMER_Start(&s_tmr_boot_listen);
+    prv_request_stop_mode_if_possible();
 }
 
 static void prv_schedule_short_beacon_retry(void)
@@ -1562,6 +1588,7 @@ static void prv_schedule_short_beacon_retry(void)
     (void)UTIL_TIMER_Stop(&s_tmr_beacon_sched);
     (void)UTIL_TIMER_SetPeriod(&s_tmr_beacon_sched, ND_RX_RETRY_DELAY_MS);
     (void)UTIL_TIMER_Start(&s_tmr_beacon_sched);
+    prv_request_stop_mode_if_possible();
 }
 
 static uint32_t prv_get_tx_slot_remaining_ms(uint64_t now_centi, uint32_t period_sec, uint32_t tx_off_sec)
@@ -1608,6 +1635,7 @@ static bool prv_schedule_short_tx_retry(uint32_t period_sec, uint32_t tx_off_sec
     (void)UTIL_TIMER_Stop(&s_tmr_tx_sched);
     (void)UTIL_TIMER_SetPeriod(&s_tmr_tx_sched, retry_ms);
     (void)UTIL_TIMER_Start(&s_tmr_tx_sched);
+    prv_request_stop_mode_if_possible();
     return true;
 }
 
@@ -1633,7 +1661,10 @@ static void prv_reschedule_main_if_pending(void)
 {
     if (s_evt_flags != 0u) {
         UTIL_SEQ_SetTask(UI_TASK_BIT_ND_MAIN, 0);
+        return;
     }
+
+    prv_request_stop_mode_if_possible();
 }
 
 static bool prv_start_beacon_rx(uint32_t window_ms, ND_RxReason_t reason)
@@ -1673,6 +1704,7 @@ static void prv_begin_boot_listen(void)
     s_sensor_ready = false;
     s_beacon_ok = false;
     s_phase_walk_idx = 0u;
+    s_boot_listen_stop_after_ble = false;
     s_boot_listen_active = true;
     s_boot_listen_deadline_ms = UTIL_TIMER_GetCurrentTime() + UI_ND_BOOT_LISTEN_MS;
     prv_stop_sensor_and_tx_timers();
@@ -1748,6 +1780,7 @@ static void prv_continue_boot_listen_or_schedule(void)
     } else {
         prv_stop_sensor_and_tx_timers();
     }
+    prv_request_stop_mode_if_possible();
 }
 
 static void prv_schedule_beacon_window(void)
@@ -1786,6 +1819,7 @@ static void prv_schedule_beacon_window(void)
         (void)UTIL_TIMER_Stop(&s_tmr_beacon_sched);
         (void)UTIL_TIMER_SetPeriod(&s_tmr_beacon_sched, delta_ms);
         (void)UTIL_TIMER_Start(&s_tmr_beacon_sched);
+        prv_request_stop_mode_if_possible();
         return;
     }
 
@@ -1810,6 +1844,7 @@ static void prv_schedule_beacon_window(void)
     (void)UTIL_TIMER_Stop(&s_tmr_beacon_sched);
     (void)UTIL_TIMER_SetPeriod(&s_tmr_beacon_sched, delta_ms);
     (void)UTIL_TIMER_Start(&s_tmr_beacon_sched);
+    prv_request_stop_mode_if_possible();
 }
 
 static void prv_schedule_reminder_window(void)
@@ -1870,6 +1905,7 @@ static void prv_schedule_sensor_and_tx(void)
     (void)UTIL_TIMER_Stop(&s_tmr_tx_sched);
     (void)UTIL_TIMER_SetPeriod(&s_tmr_tx_sched, dt_ms);
     (void)UTIL_TIMER_Start(&s_tmr_tx_sched);
+    prv_request_stop_mode_if_possible();
 }
 
 void UI_Hook_OnOpKeyPressed(void)
@@ -1928,6 +1964,10 @@ void ND_App_OnBleSessionStart(void)
         return;
     }
 
+    if (s_boot_listen_active) {
+        s_boot_listen_stop_after_ble = true;
+    }
+
     prv_abort_active_radio_for_ble();
     (void)UTIL_TIMER_Stop(&s_tmr_boot_listen);
     s_boot_listen_active = false;
@@ -1971,12 +2011,20 @@ void ND_App_OnBleSessionEnd(void)
     s_sync_cmd_active = false;
     s_sync_tx_wait_beacon_pending = false;
 
+    if (s_boot_listen_stop_after_ble) {
+        s_boot_listen_stop_after_ble = false;
+        prv_enter_unsynced_idle();
+        return;
+    }
+
     if (s_sync_state == ND_SYNC_BOOT_SEARCH) {
         prv_resume_schedule_after_boot_search();
+        prv_request_stop_mode_if_possible();
         return;
     }
 
     prv_continue_boot_listen_or_schedule();
+    prv_request_stop_mode_if_possible();
 }
 
 void ND_App_Process(void)
@@ -2068,6 +2116,12 @@ void ND_App_Process(void)
     if ((ev & ND_EVT_ENTER_STOP) != 0u) {
         s_evt_flags &= ~ND_EVT_ENTER_STOP;
         if (!UI_BLE_IsActive() && (s_state == ND_STATE_IDLE)) {
+            (void)UTIL_TIMER_Stop(&s_tmr_led1_pulse);
+            prv_led0(false);
+            prv_led1(false);
+            if (Radio.Sleep != NULL) {
+                Radio.Sleep();
+            }
             UI_LPM_EnterStopNow();
         }
         prv_reschedule_main_if_pending();
@@ -2271,6 +2325,8 @@ void ND_App_Process(void)
         prv_reschedule_main_if_pending();
         return;
     }
+
+    prv_request_stop_mode_if_possible();
 }
 
 void ND_App_Init(void)
@@ -2306,6 +2362,7 @@ void ND_App_Init(void)
     s_test_session_active = false;
     s_test_session_restore_value = 0u;
     s_test_session_restore_unit = 'H';
+    s_boot_listen_stop_after_ble = false;
     s_force_gw_phase_scan = false;
     s_gw_phase_scan_cycle_count = 0u;
     s_boot_listen_active = false;
