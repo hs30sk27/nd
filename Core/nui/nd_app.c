@@ -87,6 +87,7 @@ static uint8_t s_node_tx_payload[UI_NODE_PAYLOAD_LEN];
 static uint8_t s_sync_req_tx_payload[UI_NODE_PAYLOAD_LEN];
 static bool s_sync_cmd_active = false;
 static bool s_sync_tx_wait_beacon_pending = false;
+static uint8_t s_unsync_backoff_idx = 0u;
 static uint32_t s_last_sensor_slot_id = 0xFFFFFFFFu;
 static uint32_t s_last_tx_slot_id = 0xFFFFFFFFu;
 static uint32_t s_tx_inflight_slot_id = 0xFFFFFFFFu;
@@ -161,6 +162,10 @@ static void prv_schedule_reminder_window(void);
 static void prv_schedule_sensor_and_tx(void);
 static void prv_continue_boot_listen_or_schedule(void);
 static void prv_enter_unsync_search(void);
+static uint32_t prv_get_unsync_backoff_sec(void);
+static void prv_reset_unsync_backoff(void);
+static void prv_advance_unsync_backoff(void);
+static uint32_t prv_get_runtime_cycle_sec(void);
 static void prv_refresh_mode_from_config(void);
 static bool prv_format_setting_ascii(uint8_t value, char unit, uint8_t out_setting_ascii[3]);
 static void prv_request_immediate_beacon_scan(void);
@@ -1020,7 +1025,7 @@ static uint32_t prv_floor_cycle_anchor_sec(uint32_t epoch_sec, uint32_t period_s
 
 static uint32_t prv_get_data_freq_anchor_sec(uint32_t now_sec)
 {
-    uint32_t period_sec = s_test_mode ? 60u : prv_get_normal_cycle_sec();
+    uint32_t period_sec = prv_get_runtime_cycle_sec();
     uint32_t cycle_anchor_sec = prv_floor_cycle_anchor_sec(now_sec, period_sec);
     return cycle_anchor_sec + prv_get_tx_base_offset_sec();
 }
@@ -1098,10 +1103,53 @@ static uint32_t prv_get_beacon_rx_window_ms_with_phase_scan(void)
     return window_ms;
 }
 
+static uint32_t prv_get_unsync_backoff_sec(void)
+{
+    static const uint32_t k_unsync_backoff_sec[] = {
+        1u * 3600u,
+        2u * 3600u,
+        4u * 3600u,
+        6u * 3600u,
+        12u * 3600u,
+    };
+    uint32_t count = (uint32_t)(sizeof(k_unsync_backoff_sec) / sizeof(k_unsync_backoff_sec[0]));
+    uint32_t idx = s_unsync_backoff_idx;
+
+    if (count == 0u) {
+        return 12u * 3600u;
+    }
+    if (idx >= count) {
+        idx = count - 1u;
+    }
+    return k_unsync_backoff_sec[idx];
+}
+
+static void prv_reset_unsync_backoff(void)
+{
+    s_unsync_backoff_idx = 0u;
+}
+
+static void prv_advance_unsync_backoff(void)
+{
+    if (s_unsync_backoff_idx < 4u) {
+        s_unsync_backoff_idx++;
+    }
+}
+
 static uint32_t prv_get_unsync_search_delay_ms(void)
 {
-    uint32_t now_ms = UTIL_TIMER_GetCurrentTime();
-    return ND_SEARCH_SCAN_INTERVAL_MS_BASE + (now_ms % ND_SEARCH_SCAN_INTERVAL_MS_JITTER);
+    return prv_get_unsync_backoff_sec() * 1000u;
+}
+
+static uint32_t prv_get_runtime_cycle_sec(void)
+{
+    if (s_test_mode) {
+        return 60u;
+    }
+    if (s_sync_state == ND_SYNC_UNSYNC_SEARCH) {
+        return prv_get_unsync_backoff_sec();
+    }
+    return prv_get_normal_cycle_sec();
 }
 
 static int32_t prv_get_phase_walk_offset_sec(void)
@@ -1255,6 +1303,7 @@ static void prv_enter_locked_from_beacon(const UI_Beacon_t *beacon)
     s_sync_state = ND_SYNC_LOCKED;
     s_beacon_ok = true;
     s_beacon_miss_count = 0u;
+    prv_reset_unsync_backoff();
     s_phase_walk_idx = 0u;
     s_boot_listen_active = false;
     s_boot_listen_deadline_ms = 0u;
@@ -1281,6 +1330,7 @@ static bool prv_try_enter_holdover_from_backup(void)
     if (s_beacon_miss_count < 1u) {
         s_beacon_miss_count = 1u;
     }
+    prv_reset_unsync_backoff();
     return true;
 }
 
@@ -1302,6 +1352,9 @@ static void prv_schedule_unsync_search_scan(void)
 
 static void prv_enter_unsync_search(void)
 {
+    if (s_sync_state != ND_SYNC_UNSYNC_SEARCH) {
+        prv_reset_unsync_backoff();
+    }
     s_sync_state = ND_SYNC_UNSYNC_SEARCH;
     s_beacon_ok = false;
     s_runtime_enabled = UI_Time_IsValid();
@@ -1461,7 +1514,7 @@ static bool prv_get_tx_retry_params(uint32_t *out_period_sec, uint32_t *out_tx_o
         return false;
     }
 
-    *out_period_sec = s_test_mode ? 60u : prv_get_normal_cycle_sec();
+    *out_period_sec = prv_get_runtime_cycle_sec();
     *out_tx_off_sec = prv_get_tx_base_offset_sec() + (uint32_t)cfg->node_num * 2u;
     return (*out_period_sec != 0u);
 }
@@ -1681,7 +1734,7 @@ static void prv_schedule_sensor_and_tx(void)
     }
 
     now = UI_Time_NowCenti2016();
-    period = s_test_mode ? 60u : prv_get_normal_cycle_sec();
+    period = prv_get_runtime_cycle_sec();
     sensor_off = s_test_mode ? UI_ND_SENSOR_START_S_TEST : UI_ND_SENSOR_START_S_NORMAL;
     base_tx = prv_get_tx_base_offset_sec();
     if (prv_is_two_minute_mode_active()) {
@@ -1840,7 +1893,7 @@ void ND_App_Process(void)
         }
 
         now_sec = UI_Time_NowSec2016();
-        period = s_test_mode ? 60u : prv_get_normal_cycle_sec();
+        period = prv_get_runtime_cycle_sec();
         sensor_off = s_test_mode ? UI_ND_SENSOR_START_S_TEST : UI_ND_SENSOR_START_S_NORMAL;
         if (prv_is_two_minute_mode_active()) {
             sensor_off = 6u;
@@ -1900,7 +1953,7 @@ void ND_App_Process(void)
         cfg_mask = (uint8_t)(cfg->sensor_en_mask & UI_SENSOR_EN_ALL);
         now_centi = UI_Time_NowCenti2016();
         now_sec = (uint32_t)(now_centi / 100u);
-        period = s_test_mode ? 60u : prv_get_normal_cycle_sec();
+        period = prv_get_runtime_cycle_sec();
         tx_off = prv_get_tx_base_offset_sec() + (uint32_t)cfg->node_num * 2u;
 
         if (!s_runtime_enabled) {
@@ -2057,6 +2110,7 @@ void ND_App_Init(void)
     s_rx_reason = ND_RX_REASON_NONE;
     s_sync_cmd_active = false;
     s_sync_tx_wait_beacon_pending = false;
+    s_unsync_backoff_idx = 0u;
     s_inited = true;
 
     if (!prv_try_enter_holdover_from_backup()) {
@@ -2076,7 +2130,9 @@ void ND_Radio_OnTxDone(void)
 {
     if (s_sync_tx_wait_beacon_pending) {
         prv_stop_tx_watchdog();
-        UI_Radio_EnterSleep();
+        if (Radio.Sleep != NULL) {
+            Radio.Sleep();
+        }
         s_state = ND_STATE_IDLE;
         s_tx_inflight_slot_id = 0xFFFFFFFFu;
         UI_LPM_UnlockStop();
@@ -2152,6 +2208,8 @@ void ND_Radio_OnRxDone(uint8_t *payload, uint16_t size, int16_t rssi, int8_t snr
         }
         if (s_rx_reason == ND_RX_REASON_MAIN) {
             prv_note_main_beacon_miss();
+        } else if (s_rx_reason == ND_RX_REASON_SEARCH) {
+            prv_advance_unsync_backoff();
         }
         prv_continue_boot_listen_or_schedule();
         return;
@@ -2168,6 +2226,8 @@ void ND_Radio_OnRxDone(uint8_t *payload, uint16_t size, int16_t rssi, int8_t snr
         }
         if (s_rx_reason == ND_RX_REASON_MAIN) {
             prv_note_main_beacon_miss();
+        } else if (s_rx_reason == ND_RX_REASON_SEARCH) {
+            prv_advance_unsync_backoff();
         }
         prv_continue_boot_listen_or_schedule();
         return;
@@ -2202,6 +2262,7 @@ void ND_Radio_OnRxTimeout(void)
         prv_note_main_beacon_miss();
     } else if (s_rx_reason == ND_RX_REASON_SEARCH) {
         s_beacon_ok = false;
+        prv_advance_unsync_backoff();
     }
     prv_continue_boot_listen_or_schedule();
 }
@@ -2226,6 +2287,8 @@ void ND_Radio_OnRxError(void)
     }
     if (s_rx_reason == ND_RX_REASON_MAIN) {
         prv_note_main_beacon_miss();
+    } else if (s_rx_reason == ND_RX_REASON_SEARCH) {
+        prv_advance_unsync_backoff();
     }
     prv_continue_boot_listen_or_schedule();
 }

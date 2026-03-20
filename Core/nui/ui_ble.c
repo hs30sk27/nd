@@ -32,6 +32,11 @@ static UTIL_TIMER_Object_t s_tmr_uart_init;
 static char s_ble_name_cmd_buf[48];
 static char s_ble_name_cmd_alt_buf[48];
 
+#define UI_BLE_NAMECFG_PWR_OFF_MS      300u
+#define UI_BLE_NAMECFG_BOOT_SETTLE_MS 1200u
+#define UI_BLE_NAMECFG_CMD_GAP_MS      120u
+#define UI_BLE_NAMECFG_RESET_SETTLE_MS 300u
+
 static void prv_hw_set_bt(bool on)
 {
 #if UI_HAVE_BT_EN
@@ -223,30 +228,36 @@ bool UI_BLE_ApplyDeviceName(const char* name_ascii)
     }
 
     UI_BLE_Disable();
-    HAL_Delay(80u);
+    HAL_Delay(UI_BLE_NAMECFG_PWR_OFF_MS);
+
     UI_BLE_EnableForMs(UI_BLE_ACTIVE_MS);
     UI_BLE_EnsureSerialReady();
-    HAL_Delay(UI_BLE_AT_CMD_DELAY_MS);
+    HAL_Delay(UI_BLE_NAMECFG_BOOT_SETTLE_MS);
 
     UI_UART_SendString("AT\r\n");
-    HAL_Delay(40u);
+    HAL_Delay(UI_BLE_NAMECFG_CMD_GAP_MS);
+    UI_UART_SendString("AT\r\n");
+    HAL_Delay(UI_BLE_NAMECFG_CMD_GAP_MS);
 
     (void)snprintf(s_ble_name_cmd_buf, sizeof(s_ble_name_cmd_buf), "AT+NAME%s\r\n", name_ascii);
     UI_UART_SendString(s_ble_name_cmd_buf);
-    HAL_Delay(40u);
+    HAL_Delay(UI_BLE_NAMECFG_CMD_GAP_MS);
 
     (void)snprintf(s_ble_name_cmd_alt_buf, sizeof(s_ble_name_cmd_alt_buf), "AT+NAME=%s\r\n", name_ascii);
     UI_UART_SendString(s_ble_name_cmd_alt_buf);
-    HAL_Delay(40u);
+    HAL_Delay(UI_BLE_NAMECFG_CMD_GAP_MS);
 
     UI_UART_SendString("AT+RESET\r\n");
-    HAL_Delay(80u);
+    HAL_Delay(UI_BLE_NAMECFG_RESET_SETTLE_MS);
+
+    UI_BLE_EnableForMs(UI_BLE_ACTIVE_MS);
     return true;
 #else
     (void)name_ascii;
     return false;
 #endif
 }
+
 
 void UI_BLE_ExtendMs(uint32_t duration_ms)
 {
