@@ -129,8 +129,9 @@ static char s_test_session_restore_unit = 'H';
 #define ND_SYNC_CMD_RX_WINDOW_MS          (5000u)
 #define ND_SYNC_NOTIFY_TX_STR             ""
 #define ND_SYNC_NOTIFY_DONE_STR           "SYNC OK\r\n"
-#define ND_SYNC_NOTIFY_TIMEOUT_STR        "SYNC FAIL\r\n"
-#define ND_SYNC_NOTIFY_TX_FAIL_STR        "SYNC FAIL\r\n"
+#define ND_SYNC_NOTIFY_TIMEOUT_STR        "SYNC ERROR\r\n"
+#define ND_SYNC_NOTIFY_TX_FAIL_STR        "SYNC ERROR\r\n"
+#define ND_SYNC_BLE_HOLD_MS               (7000u)
 #define ND_SEARCH_SCAN_INTERVAL_MS_BASE   (90000u)
 #define ND_SEARCH_SCAN_INTERVAL_MS_JITTER (30000u)
 #define ND_SYNC_BKP_MAGIC                 (0x4E445359u)
@@ -210,17 +211,29 @@ static bool prv_radio_ready_for_rx(void)
     return (Radio.SetChannel != NULL) && (Radio.Rx != NULL) && (Radio.Sleep != NULL);
 }
 
+static void prv_hold_ble_for_sync(void)
+{
+    uint32_t hold_ms = UI_BLE_ACTIVE_MS;
+
+    if (!UI_BLE_IsActive()) {
+        return;
+    }
+
+    if (hold_ms < ND_SYNC_BLE_HOLD_MS) {
+        hold_ms = ND_SYNC_BLE_HOLD_MS;
+    }
+
+    UI_BLE_EnableForMs(hold_ms);
+    UI_BLE_EnsureSerialReady();
+}
+
 static void prv_send_sync_status(const char *msg)
 {
     if ((msg == NULL) || (*msg == '\0')) {
         return;
     }
 
-    if (UI_BLE_IsActive()) {
-        UI_BLE_EnableForMs(UI_BLE_ACTIVE_MS);
-        UI_BLE_EnsureSerialReady();
-    }
-
+    prv_hold_ble_for_sync();
     UI_UART_SendString(msg);
 }
 
@@ -660,10 +673,7 @@ static bool prv_start_sync_request_tx(void)
     s_sync_cmd_active = true;
     s_sync_tx_wait_beacon_pending = false;
 
-    if (UI_BLE_IsActive()) {
-        UI_BLE_EnableForMs(UI_BLE_ACTIVE_MS);
-        UI_BLE_EnsureSerialReady();
-    }
+    prv_hold_ble_for_sync();
 
     if (!prv_radio_ready_for_tx()) {
         UI_Radio_MarkRecoverNeeded();
@@ -1953,6 +1963,8 @@ bool UI_Hook_OnSyncRequested(void)
     if (!s_inited) {
         return false;
     }
+
+    prv_hold_ble_for_sync();
     s_evt_flags |= ND_EVT_SYNC_START;
     UTIL_SEQ_SetTask(UI_TASK_BIT_ND_MAIN, 0);
     return true;
@@ -2388,6 +2400,7 @@ void ND_Radio_OnTxDone(void)
         s_tx_inflight_slot_id = 0xFFFFFFFFu;
         UI_LPM_UnlockStop();
         s_sync_tx_wait_beacon_pending = false;
+        prv_hold_ble_for_sync();
         s_evt_flags |= ND_EVT_SYNC_TX_NOTIFY;
         if (!prv_start_beacon_rx(ND_SYNC_CMD_RX_WINDOW_MS, ND_RX_REASON_SYNC)) {
             s_sync_cmd_active = false;
