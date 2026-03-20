@@ -1100,7 +1100,7 @@ static uint32_t prv_get_tx_base_offset_sec(void)
         return 20u;
     }
     if (prv_is_two_minute_mode_active()) {
-        return 30u;
+        return 20u;
     }
     return 60u;
 }
@@ -1153,12 +1153,10 @@ static uint32_t prv_floor_cycle_anchor_sec(uint32_t epoch_sec, uint32_t period_s
     if (period_sec == 0u) {
         return epoch_sec;
     }
-    if (s_last_beacon_anchor_sec != 0u) {
-        if (epoch_sec >= s_last_beacon_anchor_sec) {
-            return s_last_beacon_anchor_sec + (((epoch_sec - s_last_beacon_anchor_sec) / period_sec) * period_sec);
-        }
-        return s_last_beacon_anchor_sec;
-    }
+
+    /* Data TX/RX cycle은 beacon phase(00/02/04초)와 독립적인 절대 시각 기준이다.
+     * beacon이 5분 reminder로 더 자주 와도, TX hop anchor는 실제 cycle 시작(분/시간 경계)
+     * 기준으로 고정해야 GW RX data frequency와 일치한다. */
     return ((epoch_sec / period_sec) * period_sec);
 }
 
