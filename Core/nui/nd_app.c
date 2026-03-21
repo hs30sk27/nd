@@ -202,7 +202,19 @@ static uint16_t prv_encode_payload_y(int16_t raw)
 
 static uint16_t prv_encode_payload_z(int16_t raw)
 {
-    return prv_scale_signed_axis_to_u16(raw, UI_NODE_Z_RAW_CENTER);
+    int32_t z_shifted = (int32_t)raw - (int32_t)UI_NODE_Z_RAW_CENTER;
+
+    if (z_shifted == 0) {
+        return UI_NODE_AXIS_CENTER_U16;
+    }
+    if (z_shifted < -(int32_t)UI_NODE_AXIS_RAW_HALF_RANGE) {
+        z_shifted = -(int32_t)UI_NODE_AXIS_RAW_HALF_RANGE;
+    }
+    if (z_shifted > (int32_t)UI_NODE_AXIS_RAW_HALF_RANGE) {
+        z_shifted = (int32_t)UI_NODE_AXIS_RAW_HALF_RANGE;
+    }
+
+    return prv_scale_signed_axis_to_u16((int16_t)z_shifted, 0);
 }
 
 static uint16_t prv_encode_payload_adc(uint16_t raw)

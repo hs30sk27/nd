@@ -43,7 +43,7 @@ extern "C" {
 #define UI_NODE_MEAS_SCALED_MAX_U16  (49999u)
 #define UI_NODE_AXIS_CENTER_U16      (25000u)
 #define UI_NODE_AXIS_RAW_HALF_RANGE  (16384)
-#define UI_NODE_Z_RAW_CENTER         (16384)
+#define UI_NODE_Z_RAW_CENTER         (16384) /* z 변환 기준값: raw-16384 == 0 -> 25000 */
 #define UI_NODE_ADC_RAW_MAX          (65535u)
 
 /* 비콘 파싱 결과 */
