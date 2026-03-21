@@ -3,21 +3,19 @@
  *
  * LoRa 패킷 포맷(비콘/노드데이터) 정의 + encode/decode
  *
- * 요구사항에서 명시된 payload 구성 그대로 구현:
- *
  * [BEACON]
- *  - NETID UI_NET_ID_LEN bytes (UTF-8 raw bytes)
+ *  - NETID UI_NET_ID_LEN bytes
  *  - TIME  6 bytes (YY,MM,DD,hh,mm,ss)
  *  - TEST  3 bytes ("01M" 같은 SETTING ASCII)
  *  - CRC16 2 bytes (CCITT)
  *
  * [NODE DATA]
  *  - NODE_NUM 1 byte
- *  - NETID    UI_NET_ID_LEN bytes (UTF-8 raw bytes)
+ *  - NETID    UI_NET_ID_LEN bytes
  *  - BATT     uint8  (1=normal, 0=low)
  *  - TEMP     int8   ('C) range -50..100
  *  - BCN_CNT  uint16
- *  - X,Y,Z    int16 each
+ *  - X,Y,Z    uint16 each (scaled 0..49999)
  *  - ADC      uint16
  *  - PULSE    uint32
  *  - SENSOR_EN 1 byte (bit0=ICM20948, bit1=ADC, bit2=PULSE)
@@ -39,28 +37,26 @@ extern "C" {
 #define UI_BEACON_PAYLOAD_LEN   (UI_NET_ID_LEN + 11u)
 #define UI_NODE_PAYLOAD_LEN     (UI_NET_ID_LEN + 20u)
 
-/* 비콘 파싱 결과 */
 typedef struct
 {
     uint8_t net_id[UI_NET_ID_LEN];
-    UI_DateTime_t dt;        /* centi는 사용하지 않음(전송에 포함 X) */
+    UI_DateTime_t dt;
     uint8_t setting_ascii[3];
 } UI_Beacon_t;
 
-/* 노드 데이터 파싱/빌드용 */
 typedef struct
 {
-    uint8_t  node_num;       /* 0..49 */
+    uint8_t  node_num;
     uint8_t  net_id[UI_NET_ID_LEN];
 
-    uint8_t  batt_lvl;       /* 1=normal, 0=low, 0xFF=internal invalid */
-    int8_t   temp_c;         /* -50..100'C, UI_NODE_TEMP_INVALID_C=internal invalid */
+    uint8_t  batt_lvl;
+    int8_t   temp_c;
 
     uint16_t beacon_cnt;
 
-    int16_t  x;
-    int16_t  y;
-    int16_t  z;
+    uint16_t x;
+    uint16_t y;
+    uint16_t z;
 
     uint16_t adc;
 
@@ -69,7 +65,6 @@ typedef struct
 
 } UI_NodeData_t;
 
-/* 빌드/파싱 */
 uint8_t UI_Pkt_BuildBeacon(uint8_t out[UI_BEACON_PAYLOAD_LEN],
                            const uint8_t net_id[UI_NET_ID_LEN],
                            const UI_DateTime_t* dt_no_centi,
