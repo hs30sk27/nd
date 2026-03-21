@@ -1571,7 +1571,7 @@ static void prv_enter_unsync_search(void)
         s_beacon_miss_count = 1u;
     }
     (void)UTIL_TIMER_Stop(&s_tmr_reminder_sched);
-    if (UI_BLE_IsActive()) {
+    if (UI_BLE_IsActive() && !s_test_session_active) {
         prv_clear_pending_runtime_rx_events();
         prv_stop_sensor_and_tx_timers();
         return;
@@ -1820,7 +1820,7 @@ static bool prv_restart_current_rx_window(void)
 
 static void prv_continue_boot_listen_or_schedule(void)
 {
-    if (UI_BLE_IsActive()) {
+    if (UI_BLE_IsActive() && !s_test_session_active) {
         prv_clear_pending_runtime_rx_events();
         prv_stop_sensor_and_tx_timers();
         return;
