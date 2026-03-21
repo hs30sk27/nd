@@ -60,6 +60,7 @@ static UTIL_TIMER_Object_t s_tmr_sensor_sched;
 static UTIL_TIMER_Object_t s_tmr_tx_sched;
 static UTIL_TIMER_Object_t s_tmr_tx_watchdog;
 static UTIL_TIMER_Object_t s_tmr_led1_pulse;
+static UTIL_TIMER_Object_t s_tmr_boot_led_blink;
 static UTIL_TIMER_Object_t s_tmr_test_session;
 
 static volatile uint32_t s_evt_flags = 0;
@@ -198,6 +199,8 @@ static bool prv_try_enter_holdover_from_backup(void);
 static bool s_boot_listen_active = false;
 static bool s_boot_listen_stop_after_ble = false;
 static uint32_t s_boot_listen_deadline_ms = 0u;
+static bool s_boot_led_blink_active = false;
+static bool s_boot_led_blink_on = false;
 static uint32_t s_rx_window_deadline_ms = 0u;
 static ND_RxReason_t s_rx_reason = ND_RX_REASON_NONE;
 static bool s_force_gw_phase_scan = false;
@@ -228,6 +231,10 @@ static void prv_hold_ble_for_sync(void)
     UI_BLE_EnableForMs(hold_ms);
     UI_BLE_EnsureSerialReady();
 }
+
+static void prv_tmr_boot_led_blink_cb(void *context);
+static void prv_boot_led_blink_start(void);
+static void prv_boot_led_blink_stop(void);
 
 static void prv_send_sync_status(const char *msg)
 {
@@ -273,6 +280,42 @@ static void prv_boot_beacon_led1(bool on)
 #else
     (void)on;
 #endif
+}
+
+static void prv_tmr_boot_led_blink_cb(void *context)
+{
+    uint32_t next_ms;
+
+    (void)context;
+
+    if (!s_boot_led_blink_active) {
+        return;
+    }
+
+    s_boot_led_blink_on = !s_boot_led_blink_on;
+    prv_boot_beacon_led1(s_boot_led_blink_on);
+    next_ms = s_boot_led_blink_on ? ND_BOOT_BEACON_ON_MS : ND_BOOT_BEACON_OFF_MS;
+    (void)UTIL_TIMER_Stop(&s_tmr_boot_led_blink);
+    (void)UTIL_TIMER_SetPeriod(&s_tmr_boot_led_blink, next_ms);
+    (void)UTIL_TIMER_Start(&s_tmr_boot_led_blink);
+}
+
+static void prv_boot_led_blink_start(void)
+{
+    s_boot_led_blink_active = true;
+    s_boot_led_blink_on = true;
+    prv_boot_beacon_led1(true);
+    (void)UTIL_TIMER_Stop(&s_tmr_boot_led_blink);
+    (void)UTIL_TIMER_SetPeriod(&s_tmr_boot_led_blink, ND_BOOT_BEACON_ON_MS);
+    (void)UTIL_TIMER_Start(&s_tmr_boot_led_blink);
+}
+
+static void prv_boot_led_blink_stop(void)
+{
+    s_boot_led_blink_active = false;
+    s_boot_led_blink_on = false;
+    (void)UTIL_TIMER_Stop(&s_tmr_boot_led_blink);
+    prv_boot_beacon_led1(false);
 }
 
 static void prv_led1_pulse_off_cb(void *context)
@@ -686,6 +729,7 @@ static bool prv_start_sync_request_tx(void)
     (void)UTIL_TIMER_Stop(&s_tmr_boot_listen);
     s_boot_listen_active = false;
     s_boot_listen_deadline_ms = 0u;
+    prv_boot_led_blink_stop();
     s_sensor_ready = false;
     s_sync_cmd_active = true;
     s_sync_tx_wait_beacon_pending = false;
@@ -835,7 +879,7 @@ static void prv_enter_unsynced_idle(void)
     s_beacon_ok = false;
     s_runtime_enabled = false;
     s_sensor_ready = false;
-    prv_boot_beacon_led1(false);
+    prv_boot_led_blink_stop();
     s_boot_listen_active = false;
     s_boot_listen_deadline_ms = 0u;
     s_boot_listen_stop_after_ble = false;
@@ -1463,6 +1507,7 @@ static void prv_enter_locked_from_beacon(const UI_Beacon_t *beacon)
     s_phase_walk_idx = 0u;
     s_boot_listen_active = false;
     s_boot_listen_deadline_ms = 0u;
+    prv_boot_led_blink_stop();
     s_runtime_enabled = true;
     s_sensor_ready = false;
 }
@@ -1518,6 +1563,7 @@ static void prv_enter_unsync_search(void)
     s_sensor_ready = false;
     s_boot_listen_active = false;
     s_boot_listen_deadline_ms = 0u;
+    prv_boot_led_blink_stop();
     s_phase_walk_idx = 0u;
     s_force_gw_phase_scan = false;
     s_gw_phase_scan_cycle_count = 0u;
@@ -1546,6 +1592,7 @@ static void prv_enter_phase_walk(void)
     s_sensor_ready = false;
     s_boot_listen_active = false;
     s_boot_listen_deadline_ms = 0u;
+    prv_boot_led_blink_stop();
     s_force_gw_phase_scan = false;
 }
 
@@ -1590,30 +1637,10 @@ static uint32_t prv_ms_until(uint32_t deadline_ms)
     return ((int32_t)(deadline_ms - now) > 0) ? (deadline_ms - now) : 0u;
 }
 
-static uint32_t prv_get_boot_beacon_on_ms(void)
-{
-    uint32_t remain_ms = prv_ms_until(s_boot_listen_deadline_ms);
-
-    if (remain_ms == 0u) {
-        return 0u;
-    }
-    if (remain_ms > ND_BOOT_BEACON_ON_MS) {
-        remain_ms = ND_BOOT_BEACON_ON_MS;
-    }
-    if (remain_ms == 0u) {
-        remain_ms = 1u;
-    }
-    return remain_ms;
-}
-
 static void prv_schedule_short_boot_retry(void)
 {
     uint32_t remain_ms = prv_ms_until(s_boot_listen_deadline_ms);
-    uint32_t retry_ms = s_boot_listen_active ? ND_BOOT_BEACON_OFF_MS : ND_RX_RETRY_DELAY_MS;
-
-    if (s_boot_listen_active) {
-        prv_boot_beacon_led1(false);
-    }
+    uint32_t retry_ms = ND_RX_RETRY_DELAY_MS;
 
     if (remain_ms == 0u) {
         prv_continue_boot_listen_or_schedule();
@@ -1638,14 +1665,6 @@ static void prv_schedule_short_beacon_retry(void)
     (void)UTIL_TIMER_Start(&s_tmr_beacon_sched);
     prv_request_stop_mode_if_possible();
 }
-
-/* NOTE:
- * The remainder of nd_app.c is unchanged from the repository snapshot except for
- * the boot beacon duty-cycle and LED1 handling integrated above and in the RX/boot
- * paths below. This full replacement file intentionally focuses on the directly
- * edited portions requested by the user.
- */
-
 
 static uint32_t prv_get_tx_slot_remaining_ms(uint64_t now_centi, uint32_t period_sec, uint32_t tx_off_sec)
 {
@@ -1765,12 +1784,15 @@ static void prv_begin_boot_listen(void)
     s_boot_listen_deadline_ms = UTIL_TIMER_GetCurrentTime() + UI_ND_BOOT_LISTEN_MS;
     prv_stop_sensor_and_tx_timers();
 
-    first_ms = prv_get_boot_beacon_on_ms();
+    first_ms = UI_ND_BOOT_LISTEN_MS;
+    if (first_ms > ND_BOOT_RX_WINDOW_MS) {
+        first_ms = ND_BOOT_RX_WINDOW_MS;
+    }
     if (first_ms == 0u) {
         first_ms = 1u;
     }
 
-    prv_boot_beacon_led1(true);
+    prv_boot_led_blink_start();
     if (!prv_start_beacon_rx(first_ms, ND_RX_REASON_BOOT)) {
         prv_schedule_short_boot_retry();
     }
@@ -1807,18 +1829,23 @@ static void prv_continue_boot_listen_or_schedule(void)
     if (s_boot_listen_active) {
         uint32_t remain_ms = prv_ms_until(s_boot_listen_deadline_ms);
         if (remain_ms > 0u) {
-            uint32_t next_ms = prv_get_boot_beacon_on_ms();
+            uint32_t next_ms = remain_ms;
+            if (next_ms > ND_BOOT_RX_WINDOW_MS) {
+                next_ms = ND_BOOT_RX_WINDOW_MS;
+            }
             if (next_ms == 0u) {
                 next_ms = 1u;
             }
-            prv_boot_beacon_led1(true);
+            if (!s_boot_led_blink_active) {
+                prv_boot_led_blink_start();
+            }
             if (!prv_start_beacon_rx(next_ms, ND_RX_REASON_BOOT)) {
                 prv_schedule_short_boot_retry();
             }
             return;
         }
 
-        prv_boot_beacon_led1(false);
+        prv_boot_led_blink_stop();
         s_boot_listen_active = false;
         s_boot_listen_deadline_ms = 0u;
         prv_resume_schedule_after_boot_search();
@@ -2025,6 +2052,7 @@ void ND_App_OnBleSessionStart(void)
         s_boot_listen_stop_after_ble = true;
     }
 
+    prv_boot_led_blink_stop();
     prv_abort_active_radio_for_ble();
     (void)UTIL_TIMER_Stop(&s_tmr_boot_listen);
     s_boot_listen_active = false;
@@ -2051,6 +2079,7 @@ void ND_App_OnBleSessionEnd(void)
         return;
     }
 
+    prv_boot_led_blink_stop();
     prv_abort_active_radio_for_ble();
     (void)UTIL_TIMER_Stop(&s_tmr_boot_listen);
     s_boot_listen_active = false;
@@ -2402,6 +2431,7 @@ void ND_App_Init(void)
     UTIL_TIMER_Create(&s_tmr_tx_sched, 0u, UTIL_TIMER_ONESHOT, prv_tmr_tx_cb, NULL);
     UTIL_TIMER_Create(&s_tmr_tx_watchdog, ND_TX_WATCHDOG_MS, UTIL_TIMER_ONESHOT, prv_tmr_tx_watchdog_cb, NULL);
     UTIL_TIMER_Create(&s_tmr_led1_pulse, 10u, UTIL_TIMER_ONESHOT, prv_led1_pulse_off_cb, NULL);
+    UTIL_TIMER_Create(&s_tmr_boot_led_blink, ND_BOOT_BEACON_ON_MS, UTIL_TIMER_ONESHOT, prv_tmr_boot_led_blink_cb, NULL);
     UTIL_TIMER_Create(&s_tmr_test_session, ND_TEST_SESSION_MS, UTIL_TIMER_ONESHOT, prv_tmr_test_session_cb, NULL);
 
     s_state = ND_STATE_IDLE;
@@ -2424,6 +2454,8 @@ void ND_App_Init(void)
     s_gw_phase_scan_cycle_count = 0u;
     s_boot_listen_active = false;
     s_boot_listen_deadline_ms = 0u;
+    s_boot_led_blink_active = false;
+    s_boot_led_blink_on = false;
     s_rx_window_deadline_ms = 0u;
     s_rx_reason = ND_RX_REASON_NONE;
     s_sync_cmd_active = false;
@@ -2521,7 +2553,7 @@ void ND_Radio_OnRxDone(uint8_t *payload, uint16_t size, int16_t rssi, int8_t snr
             return;
         }
         if (s_rx_reason == ND_RX_REASON_BOOT) {
-            prv_schedule_short_boot_retry();
+            prv_continue_boot_listen_or_schedule();
             return;
         }
         if (s_rx_reason == ND_RX_REASON_MAIN) {
@@ -2545,7 +2577,7 @@ void ND_Radio_OnRxDone(uint8_t *payload, uint16_t size, int16_t rssi, int8_t snr
             return;
         }
         if (s_rx_reason == ND_RX_REASON_BOOT) {
-            prv_schedule_short_boot_retry();
+            prv_continue_boot_listen_or_schedule();
             return;
         }
         if (s_rx_reason == ND_RX_REASON_MAIN) {
@@ -2570,7 +2602,7 @@ void ND_Radio_OnRxDone(uint8_t *payload, uint16_t size, int16_t rssi, int8_t snr
     }
     prv_continue_boot_listen_or_schedule();
     if (s_rx_reason == ND_RX_REASON_BOOT) {
-        prv_boot_beacon_led1(false);
+        prv_boot_led_blink_stop();
         prv_request_stop_mode();
     }
 }
@@ -2593,7 +2625,7 @@ void ND_Radio_OnRxTimeout(void)
         return;
     }
     if (s_rx_reason == ND_RX_REASON_BOOT) {
-        prv_schedule_short_boot_retry();
+        prv_continue_boot_listen_or_schedule();
         return;
     }
     if (s_rx_reason == ND_RX_REASON_MAIN) {
@@ -2626,7 +2658,7 @@ void ND_Radio_OnRxError(void)
         return;
     }
     if (s_rx_reason == ND_RX_REASON_BOOT) {
-        prv_schedule_short_boot_retry();
+        prv_continue_boot_listen_or_schedule();
         return;
     }
     if (s_rx_reason == ND_RX_REASON_MAIN) {
