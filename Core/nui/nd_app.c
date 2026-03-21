@@ -167,6 +167,49 @@ static int8_t prv_apply_nd_internal_temp_comp(int8_t temp_c)
     return (int8_t)v;
 }
 
+static uint16_t prv_scale_signed_axis_to_u16(int16_t raw, int32_t center_raw)
+{
+    int32_t delta = (int32_t)raw - center_raw;
+    uint32_t numer;
+
+    if (delta < -(int32_t)UI_NODE_AXIS_RAW_HALF_RANGE) {
+        delta = -(int32_t)UI_NODE_AXIS_RAW_HALF_RANGE;
+    }
+    if (delta > (int32_t)UI_NODE_AXIS_RAW_HALF_RANGE) {
+        delta = (int32_t)UI_NODE_AXIS_RAW_HALF_RANGE;
+    }
+
+    numer = (uint32_t)(delta + (int32_t)UI_NODE_AXIS_RAW_HALF_RANGE) * UI_NODE_MEAS_SCALED_MAX_U16;
+    numer += (uint32_t)UI_NODE_AXIS_RAW_HALF_RANGE;
+    return (uint16_t)(numer / (uint32_t)(2u * UI_NODE_AXIS_RAW_HALF_RANGE));
+}
+
+static uint16_t prv_scale_adc_avg_to_u16(uint16_t raw)
+{
+    uint32_t numer = ((uint32_t)raw * UI_NODE_MEAS_SCALED_MAX_U16) + (UI_NODE_ADC_RAW_MAX / 2u);
+    return (uint16_t)(numer / UI_NODE_ADC_RAW_MAX);
+}
+
+static uint16_t prv_encode_payload_x(int16_t raw)
+{
+    return prv_scale_signed_axis_to_u16(raw, 0);
+}
+
+static uint16_t prv_encode_payload_y(int16_t raw)
+{
+    return prv_scale_signed_axis_to_u16(raw, 0);
+}
+
+static uint16_t prv_encode_payload_z(int16_t raw)
+{
+    return prv_scale_signed_axis_to_u16(raw, UI_NODE_Z_RAW_CENTER);
+}
+
+static uint16_t prv_encode_payload_adc(uint16_t raw)
+{
+    return prv_scale_adc_avg_to_u16(raw);
+}
+
 static void prv_stop_tx_watchdog(void);
 static void prv_refresh_runtime_timers_after_tx(void);
 static void prv_force_tx_recovery(bool keep_last_slot);
@@ -502,20 +545,20 @@ static void prv_fill_node_data_from_sensor(UI_NodeData_t* nd,
     nd->temp_c = sensor->temp_c;
     nd->beacon_cnt = beacon_cnt;
 
-    if ((cfg_mask & UI_SENSOR_EN_ICM20948) != 0u) {
-        nd->x = sensor->x;
-        nd->y = sensor->y;
-        nd->z = sensor->z;
+    if (((cfg_mask & UI_SENSOR_EN_ICM20948) != 0u) && prv_sensor_xyz_valid(sensor)) {
+        nd->x = prv_encode_payload_x(sensor->x);
+        nd->y = prv_encode_payload_y(sensor->y);
+        nd->z = prv_encode_payload_z(sensor->z);
     } else {
-        nd->x = (int16_t)0xFFFFu;
-        nd->y = (int16_t)0xFFFFu;
-        nd->z = (int16_t)0xFFFFu;
+        nd->x = UI_NODE_MEAS_UNUSED_U16;
+        nd->y = UI_NODE_MEAS_UNUSED_U16;
+        nd->z = UI_NODE_MEAS_UNUSED_U16;
     }
 
-    if ((cfg_mask & UI_SENSOR_EN_ADC) != 0u) {
-        nd->adc = sensor->adc;
+    if (((cfg_mask & UI_SENSOR_EN_ADC) != 0u) && prv_sensor_adc_valid(sensor)) {
+        nd->adc = prv_encode_payload_adc(sensor->adc);
     } else {
-        nd->adc = 0xFFFFu;
+        nd->adc = UI_NODE_MEAS_UNUSED_U16;
     }
 
     if ((cfg_mask & UI_SENSOR_EN_PULSE) != 0u) {
@@ -550,6 +593,11 @@ static bool prv_sensor_result_matches_node_data(const ND_SensorResult_t* sensor,
                                                 const UI_NodeData_t* nd,
                                                 uint8_t cfg_mask)
 {
+    uint16_t exp_x = UI_NODE_MEAS_UNUSED_U16;
+    uint16_t exp_y = UI_NODE_MEAS_UNUSED_U16;
+    uint16_t exp_z = UI_NODE_MEAS_UNUSED_U16;
+    uint16_t exp_adc = UI_NODE_MEAS_UNUSED_U16;
+
     if ((sensor == NULL) || (nd == NULL)) {
         return false;
     }
@@ -559,21 +607,20 @@ static bool prv_sensor_result_matches_node_data(const ND_SensorResult_t* sensor,
         return false;
     }
 
-    if ((cfg_mask & UI_SENSOR_EN_ICM20948) != 0u) {
-        if ((sensor->x != nd->x) || (sensor->y != nd->y) || (sensor->z != nd->z)) {
-            return false;
-        }
-    } else if ((nd->x != (int16_t)0xFFFFu) ||
-               (nd->y != (int16_t)0xFFFFu) ||
-               (nd->z != (int16_t)0xFFFFu)) {
+    if (((cfg_mask & UI_SENSOR_EN_ICM20948) != 0u) && prv_sensor_xyz_valid(sensor)) {
+        exp_x = prv_encode_payload_x(sensor->x);
+        exp_y = prv_encode_payload_y(sensor->y);
+        exp_z = prv_encode_payload_z(sensor->z);
+    }
+
+    if ((nd->x != exp_x) || (nd->y != exp_y) || (nd->z != exp_z)) {
         return false;
     }
 
-    if ((cfg_mask & UI_SENSOR_EN_ADC) != 0u) {
-        if (sensor->adc != nd->adc) {
-            return false;
-        }
-    } else if (nd->adc != 0xFFFFu) {
+    if (((cfg_mask & UI_SENSOR_EN_ADC) != 0u) && prv_sensor_adc_valid(sensor)) {
+        exp_adc = prv_encode_payload_adc(sensor->adc);
+    }
+    if (nd->adc != exp_adc) {
         return false;
     }
 
@@ -670,20 +717,33 @@ static void prv_send_test_result_ble(const ND_SensorResult_t* r)
 {
     const char* batt_text;
     char msg[192];
+    uint16_t sx = UI_NODE_MEAS_UNUSED_U16;
+    uint16_t sy = UI_NODE_MEAS_UNUSED_U16;
+    uint16_t sz = UI_NODE_MEAS_UNUSED_U16;
+    uint16_t sa = UI_NODE_MEAS_UNUSED_U16;
 
     if (r == NULL) {
         return;
     }
 
+    if (prv_sensor_xyz_valid(r)) {
+        sx = prv_encode_payload_x(r->x);
+        sy = prv_encode_payload_y(r->y);
+        sz = prv_encode_payload_z(r->z);
+    }
+    if (prv_sensor_adc_valid(r)) {
+        sa = prv_encode_payload_adc(r->adc);
+    }
+
     batt_text = prv_batt_text_from_level(r->batt_lvl);
     (void)snprintf(msg, sizeof(msg),
-                   "<TEST START:BATT:%s,T:%d,X:%d,Y:%d,Z:%d,A:%u,P:%lu>\r\n",
+                   "<TEST START:BATT:%s,T:%d,X:%u,Y:%u,Z:%u,A:%u,P:%lu>\r\n",
                    batt_text,
                    (int)r->temp_c,
-                   (int)r->x,
-                   (int)r->y,
-                   (int)r->z,
-                   (unsigned)r->adc,
+                   (unsigned)sx,
+                   (unsigned)sy,
+                   (unsigned)sz,
+                   (unsigned)sa,
                    (unsigned long)r->pulse_cnt);
     UI_UART_SendString(msg);
 }
@@ -703,10 +763,10 @@ static bool prv_build_sync_request_payload(uint8_t out_payload[UI_NODE_PAYLOAD_L
     nd.batt_lvl = UI_NODE_BATT_LVL_INVALID;
     nd.temp_c = UI_NODE_TEMP_INVALID_C;
     nd.beacon_cnt = s_beacon_cnt;
-    nd.x = (int16_t)0xFFFFu;
-    nd.y = (int16_t)0xFFFFu;
-    nd.z = (int16_t)0xFFFFu;
-    nd.adc = 0xFFFFu;
+    nd.x = UI_NODE_MEAS_UNUSED_U16;
+    nd.y = UI_NODE_MEAS_UNUSED_U16;
+    nd.z = UI_NODE_MEAS_UNUSED_U16;
+    nd.adc = UI_NODE_MEAS_UNUSED_U16;
     nd.pulse_cnt = 0xFFFFFFFFu;
     nd.sensor_en_mask = 0u;
     (void)UI_Pkt_BuildNodeData(out_payload, &nd);
@@ -1994,6 +2054,10 @@ void UI_Hook_OnOpKeyPressed(void)
     char ts[48];
     char msg[160];
     uint32_t pulse;
+    uint16_t sx = UI_NODE_MEAS_UNUSED_U16;
+    uint16_t sy = UI_NODE_MEAS_UNUSED_U16;
+    uint16_t sz = UI_NODE_MEAS_UNUSED_U16;
+    uint16_t sa = UI_NODE_MEAS_UNUSED_U16;
 
     ND_App_OnBleSessionStart();
     prv_led1(true);
@@ -2001,9 +2065,17 @@ void UI_Hook_OnOpKeyPressed(void)
     UI_BLE_EnableForMs(UI_BLE_ACTIVE_MS);
     UI_Time_FormatNow(ts, sizeof(ts));
     pulse = r.pulse_cnt;
-    (void)snprintf(msg, sizeof(msg), "<%s:%d,%d,%d,%u,%lu>\r\n",
-                   ts, (int)r.x, (int)r.y, (int)r.z,
-                   (unsigned)r.adc, (unsigned long)pulse);
+    if (prv_sensor_xyz_valid(&r)) {
+        sx = prv_encode_payload_x(r.x);
+        sy = prv_encode_payload_y(r.y);
+        sz = prv_encode_payload_z(r.z);
+    }
+    if (prv_sensor_adc_valid(&r)) {
+        sa = prv_encode_payload_adc(r.adc);
+    }
+    (void)snprintf(msg, sizeof(msg), "<%s:%u,%u,%u,%u,%lu>\r\n",
+                   ts, (unsigned)sx, (unsigned)sy, (unsigned)sz,
+                   (unsigned)sa, (unsigned long)pulse);
     UI_UART_SendString(msg);
     if (!UI_BLE_IsActive()) {
         prv_led1(false);
