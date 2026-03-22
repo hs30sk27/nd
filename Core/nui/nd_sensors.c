@@ -585,11 +585,11 @@ bool ND_Sensors_MeasureAll(ND_SensorResult_t* out, uint8_t sensor_en_mask)
     /* 기본 invalid */
     out->batt_lvl = UI_NODE_BATT_LVL_INVALID;
     out->temp_c = UI_NODE_TEMP_INVALID_C;
-    out->x = (int16_t)0xFFFFu;
-    out->y = (int16_t)0xFFFFu;
-    out->z = (int16_t)0xFFFFu;
-    out->adc = 0xFFFFu;
-    out->pulse_cnt = 0xFFFFFFFFu;
+    out->x = (int16_t)0;
+    out->y = (int16_t)0;
+    out->z = (int16_t)0;
+    out->adc = 0;
+    out->pulse_cnt = 0;
     if ((sensor_en_mask & UI_SENSOR_EN_PULSE) != 0u) {
         out->pulse_cnt = UI_GPIO_GetPulseCount();
     }

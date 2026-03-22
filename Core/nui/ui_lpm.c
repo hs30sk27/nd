@@ -268,7 +268,7 @@ void UI_LPM_BeforeStop_DeInitPeripherals(void)
      * - Radio.Sleep(): SubGHz 수신/송신이 stop 직전까지 남아 전류를 먹는 것을 방지
      * - RF_TXEN/RF_RXEN LOW, ADC_EN LOW, BT_EN LOW: 외부 회로 정지
      */
-    if (Radio.Sleep != NULL)
+//    if (Radio.Sleep != NULL)
     {
         Radio.Sleep();
     }
@@ -322,7 +322,7 @@ void UI_LPM_EnterStopNow(void)
     }
 
     /* 실제 STOP 진입/복귀 정리는 stm32_lpm_if.c의 PowerDriver 콜백에서 수행한다. */
-    HAL_SuspendTick();
+//    HAL_SuspendTick();
     UTIL_LPM_EnterLowPower();
-    HAL_ResumeTick();
+//    HAL_ResumeTick();
 }
