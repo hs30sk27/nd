@@ -140,17 +140,17 @@ void UI_BLE_Process(void)
     s_evt_flags = 0u;
 
     if ((ev & BLE_EVT_STOP_REQ) != 0u) {
-        ND_App_OnBleSessionEnd();
         UI_BLE_Disable();
+        ND_App_OnBleSessionEnd();
         UI_LPM_EnterStopNow();
         return;
     }
 
     if ((ev & BLE_EVT_TIMEOUT) != 0u) {
-        ND_App_OnBleSessionEnd();
         UI_BLE_Disable();
+        ND_App_OnBleSessionEnd();
         UI_LPM_EnterStopNow();
-        /* stop 요청 외 다른 이벤트가 동시에 잡혀도 disable 이후 자연히 정리된다. */
+        return;
     }
 
     if ((ev & BLE_EVT_UART_INIT) != 0u) {
