@@ -283,6 +283,7 @@ void UI_LPM_BeforeStop_DeInitPeripherals(void)
     UI_UART_ResetRxBuffer();
     UI_BLE_ClearFlagsBeforeStop();
     //prv_abort_peripheral_activity_before_deinit();
+    prv_set_gpio_analog(GPIOB, GPIO_PIN_3 | GPIO_PIN_4 | GPIO_PIN_5);
 
 #if defined(HAL_ADC_MODULE_ENABLED)
     (void)HAL_ADC_Stop(&hadc);

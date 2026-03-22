@@ -244,6 +244,7 @@ static void prv_clear_pending_runtime_rx_events(void);
 static bool prv_abort_beacon_rx_for_tx(void);
 static void prv_suspend_runtime_rx_around_tx(void);
 static void prv_start_tx_watchdog(void);
+static void prv_enter_stop_now_if_possible(void);
 static void prv_request_stop_mode(void);
 static void prv_request_stop_mode_if_possible(void);
 static void prv_enter_unsynced_idle(void);
@@ -902,8 +903,36 @@ static void prv_request_stop_mode(void)
     UTIL_SEQ_SetTask(UI_TASK_BIT_ND_MAIN, 0);
 }
 
+static void prv_enter_stop_now_if_possible(void)
+{
+    uint32_t pending_mask = (s_evt_flags & ~ND_EVT_ENTER_STOP);
+
+    if (pending_mask != 0u) {
+        return;
+    }
+    if (UI_BLE_IsActive()) {
+        return;
+    }
+    if (s_state != ND_STATE_IDLE) {
+        return;
+    }
+
+    s_evt_flags &= ~ND_EVT_ENTER_STOP;
+    (void)UTIL_TIMER_Stop(&s_tmr_led1_pulse);
+    prv_led0(false);
+    prv_led1(false);
+    if (Radio.Sleep != NULL) {
+        Radio.Sleep();
+    }
+    UI_LPM_EnterStopNow();
+}
+
 static void prv_request_stop_mode_if_possible(void)
 {
+    if ((s_evt_flags == 0u) && !UI_BLE_IsActive() && (s_state == ND_STATE_IDLE)) {
+        prv_enter_stop_now_if_possible();
+        return;
+    }
     if ((s_evt_flags & ND_EVT_ENTER_STOP) != 0u) {
         return;
     }
@@ -2285,15 +2314,7 @@ void ND_App_Process(void)
 
     if ((ev & ND_EVT_ENTER_STOP) != 0u) {
         s_evt_flags &= ~ND_EVT_ENTER_STOP;
-        if (!UI_BLE_IsActive() && (s_state == ND_STATE_IDLE)) {
-            (void)UTIL_TIMER_Stop(&s_tmr_led1_pulse);
-            prv_led0(false);
-            prv_led1(false);
-            if (Radio.Sleep != NULL) {
-                Radio.Sleep();
-            }
-            UI_LPM_EnterStopNow();
-        }
+        prv_enter_stop_now_if_possible();
         prv_reschedule_main_if_pending();
         return;
     }
