@@ -273,7 +273,7 @@ void UI_LPM_BeforeStop_DeInitPeripherals(void)
         Radio.Sleep();
     }
 
-    prv_force_stop_pin_levels();
+//    prv_force_stop_pin_levels();
 
     /* ------------------------------------------------------------------ */
     /* SW 상태 정리: 다음 wake-up 후 재진입 시 꼬임 방지                  */
@@ -282,7 +282,7 @@ void UI_LPM_BeforeStop_DeInitPeripherals(void)
     UI_GPIO_ClearEvents();
     UI_UART_ResetRxBuffer();
     UI_BLE_ClearFlagsBeforeStop();
-    prv_abort_peripheral_activity_before_deinit();
+    //prv_abort_peripheral_activity_before_deinit();
 
 #if defined(HAL_ADC_MODULE_ENABLED)
     (void)HAL_ADC_Stop(&hadc);
@@ -300,7 +300,7 @@ void UI_LPM_BeforeStop_DeInitPeripherals(void)
     prv_disable_spi_clock(&hspi1);
 #endif
 
-    prv_configure_deinited_pins_for_stop();
+//    prv_configure_deinited_pins_for_stop();
 }
 
 void UI_LPM_AfterStop_ReInitPeripherals(void)
