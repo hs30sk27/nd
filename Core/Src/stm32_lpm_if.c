@@ -96,6 +96,16 @@ void PWR_EnterStopMode(void)
 __NOP();
   /* USER CODE END EnterStopMode_1 */
   HAL_SuspendTick();
+#if defined(SCB_ICSR_PENDSTCLR_Msk)
+  SCB->ICSR = SCB_ICSR_PENDSTCLR_Msk;
+#endif
+#if defined(SCB_ICSR_PENDSVCLR_Msk)
+  SCB->ICSR = SCB_ICSR_PENDSVCLR_Msk;
+#endif
+#if defined(PWR_FLAG_WU)
+  __HAL_PWR_CLEAR_FLAG(PWR_FLAG_WU);
+#endif
+
   /* Clear Status Flag before entering STOP/STANDBY Mode */
   LL_PWR_ClearFlag_C1STOP_C1STB();
 
