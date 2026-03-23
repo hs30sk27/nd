@@ -154,6 +154,38 @@ static void prv_restore_pins_after_stop(void)
 #endif
 }
 
+static void prv_replay_wakeup_key_if_still_asserted(void)
+{
+#if defined(__HAL_RCC_GPIOA_CLK_ENABLE)
+    __HAL_RCC_GPIOA_CLK_ENABLE();
+#endif
+
+    /*
+     * STOP wake-up를 만든 첫 key falling edge가
+     * "MCU는 깨어났지만 UI task event로 이어지지 않는" 경우를 보강한다.
+     *
+     * - key가 아직 눌린(active-low) 상태면 wake 직후 한 번 software replay
+     * - 실제 EXTI callback이 이미 동작한 경우에는 ui_gpio debounce가 중복을 걸러냄
+     *
+     * 현장 증상:
+     * - 버튼을 누르면 STOP 전류는 풀리지만
+     * - BLE 세션/ASCII 전송이 시작되지 않아 "깨어나지 않은 것처럼" 보임
+     */
+#if defined(TEST_KEY_GPIO_Port) && defined(TEST_KEY_Pin)
+    if (HAL_GPIO_ReadPin(TEST_KEY_GPIO_Port, TEST_KEY_Pin) == GPIO_PIN_RESET)
+    {
+        UI_GPIO_ExtiCallback(TEST_KEY_Pin);
+    }
+#endif
+
+#if defined(OP_KEY_GPIO_Port) && defined(OP_KEY_Pin)
+    if (HAL_GPIO_ReadPin(OP_KEY_GPIO_Port, OP_KEY_Pin) == GPIO_PIN_RESET)
+    {
+        UI_GPIO_ExtiCallback(OP_KEY_Pin);
+    }
+#endif
+}
+
 static void prv_disable_spi_clock(const SPI_HandleTypeDef *hspi)
 {
 #if defined(SPI1) && defined(__HAL_RCC_SPI1_CLK_DISABLE)
@@ -349,6 +381,7 @@ void UI_LPM_AfterStop_ReInitPeripherals(void)
      */
     prv_restore_pins_after_stop();
     UI_Radio_MarkRecoverNeeded();
+    prv_replay_wakeup_key_if_still_asserted();
 }
 
 void UI_LPM_EnterStopNow(void)
