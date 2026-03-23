@@ -9,6 +9,7 @@
 #include "ui_time.h"
 #include "ui_radio.h"
 #include "radio.h"
+#include "timer_if.h"
 
 #include "stm32_lpm.h"
 #include "utilities_def.h" /* CFG_LPM_APPLI_Id */
@@ -149,7 +150,7 @@ static void prv_restore_pins_after_stop(void)
     prv_restore_gpio_input(ICM20948_INT_GPIO_Port, ICM20948_INT_Pin, GPIO_MODE_IT_RISING, GPIO_PULLUP);
 #endif
 #if defined(PULSE_IN_GPIO_Port) && defined(PULSE_IN_Pin)
-    prv_restore_gpio_input(PULSE_IN_GPIO_Port, PULSE_IN_Pin, GPIO_MODE_IT_FALLING, GPIO_NOPULL);
+    prv_restore_gpio_input(PULSE_IN_GPIO_Port, PULSE_IN_Pin, GPIO_MODE_IT_FALLING, GPIO_PULLUP);
 #endif
 }
 
@@ -216,6 +217,52 @@ static void prv_disable_adc_clock(const ADC_HandleTypeDef *hadc_ptr)
 #endif
 }
 
+
+static void prv_clear_pending_irq_sources_before_stop(void)
+{
+    /* RTC Alarm A uses EXTI line 17 on STM32WL.
+     * Clear both peripheral and EXTI/NVIC pending state so a stale alarm
+     * does not cause an immediate STOP wake-up. */
+    TIMER_IF_ClearAlarmWakeupFlags();
+
+#if defined(__HAL_GPIO_EXTI_CLEAR_IT)
+# if defined(ICM20948_INT_Pin)
+    __HAL_GPIO_EXTI_CLEAR_IT(ICM20948_INT_Pin);
+# endif
+# if defined(OP_KEY_Pin)
+    __HAL_GPIO_EXTI_CLEAR_IT(OP_KEY_Pin);
+# endif
+# if defined(PULSE_IN_Pin)
+    __HAL_GPIO_EXTI_CLEAR_IT(PULSE_IN_Pin);
+# endif
+# if defined(TEST_KEY_Pin)
+    __HAL_GPIO_EXTI_CLEAR_IT(TEST_KEY_Pin);
+# endif
+#endif
+
+#if defined(DMA1_Channel2_IRQn)
+    HAL_NVIC_ClearPendingIRQ(DMA1_Channel2_IRQn);
+#endif
+#if defined(EXTI0_IRQn)
+    HAL_NVIC_ClearPendingIRQ(EXTI0_IRQn);
+#endif
+#if defined(EXTI1_IRQn)
+    HAL_NVIC_ClearPendingIRQ(EXTI1_IRQn);
+#endif
+#if defined(EXTI15_10_IRQn)
+    HAL_NVIC_ClearPendingIRQ(EXTI15_10_IRQn);
+#endif
+#if defined(RTC_Alarm_IRQn)
+    HAL_NVIC_ClearPendingIRQ(RTC_Alarm_IRQn);
+#endif
+#if defined(USART1_IRQn)
+    HAL_NVIC_ClearPendingIRQ(USART1_IRQn);
+#endif
+#if defined(SUBGHZ_Radio_IRQn)
+    HAL_NVIC_ClearPendingIRQ(SUBGHZ_Radio_IRQn);
+#endif
+}
+
 static volatile uint32_t s_stop_lock = 0;
 
 void UI_LPM_Init(void)
@@ -277,10 +324,21 @@ void UI_LPM_BeforeStop_DeInitPeripherals(void)
     UI_Radio_MarkRecoverNeeded();
     prv_force_stop_pin_levels();
 
-    /* Stop 직전 소프트 상태만 정리하고, 주기 작업에 필요한 공용 peripheral 경로는 유지 */
+    /* BATT_LVL은 wake source가 아니므로 stop 동안 analog/no-pull로 내려
+     * floating digital input에 의한 누설 전류를 줄인다. */
+#if defined(__HAL_RCC_GPIOA_CLK_ENABLE)
+    __HAL_RCC_GPIOA_CLK_ENABLE();
+#endif
+#if defined(BATT_LVL_GPIO_Port) && defined(BATT_LVL_Pin)
+    prv_set_gpio_analog(BATT_LVL_GPIO_Port, BATT_LVL_Pin);
+#endif
+
+    /* Stop 직전 소프트 상태만 정리하고, latched wake source는 비워
+     * STOP 진입 직후 즉시 재기상하는 현상을 막는다. */
     UI_Core_ClearFlagsBeforeStop();
     UI_GPIO_ClearEvents();
     UI_UART_ResetRxBuffer();
+    prv_clear_pending_irq_sources_before_stop();
 }
 
 void UI_LPM_AfterStop_ReInitPeripherals(void)

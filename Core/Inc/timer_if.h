@@ -126,6 +126,14 @@ uint32_t TIMER_IF_Convert_ms2Tick(uint32_t timeMilliSec);
 uint32_t TIMER_IF_Convert_Tick2ms(uint32_t tick);
 
 /**
+  * @brief Clear stale RTC Alarm wakeup/pending sources
+  * @note Clears the RTC alarm peripheral flag, EXTI line 17 pending flag,
+  *       and RTC_Alarm NVIC pending bit so STOP mode does not resume
+  *       immediately because of a latched alarm wake request.
+  */
+void TIMER_IF_ClearAlarmWakeupFlags(void);
+
+/**
   * @brief Get rtc time
   * @param[out] subSeconds in ticks
   * @return time seconds

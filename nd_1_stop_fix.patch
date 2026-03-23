@@ -1,0 +1,180 @@
+--- a/Core/nui/ui_lpm.c
++++ b/Core/nui/ui_lpm.c
+@@ -9,6 +9,7 @@
+ #include "ui_time.h"
+ #include "ui_radio.h"
+ #include "radio.h"
++#include "timer_if.h"
+ 
+ #include "stm32_lpm.h"
+ #include "utilities_def.h" /* CFG_LPM_APPLI_Id */
+@@ -149,7 +150,7 @@
+     prv_restore_gpio_input(ICM20948_INT_GPIO_Port, ICM20948_INT_Pin, GPIO_MODE_IT_RISING, GPIO_PULLUP);
+ #endif
+ #if defined(PULSE_IN_GPIO_Port) && defined(PULSE_IN_Pin)
+-    prv_restore_gpio_input(PULSE_IN_GPIO_Port, PULSE_IN_Pin, GPIO_MODE_IT_FALLING, GPIO_NOPULL);
++    prv_restore_gpio_input(PULSE_IN_GPIO_Port, PULSE_IN_Pin, GPIO_MODE_IT_FALLING, GPIO_PULLUP);
+ #endif
+ }
+ 
+@@ -213,6 +214,52 @@
+         return;
+     }
+ # endif
++#endif
++}
++
++
++static void prv_clear_pending_irq_sources_before_stop(void)
++{
++    /* RTC Alarm A uses EXTI line 17 on STM32WL.
++     * Clear both peripheral and EXTI/NVIC pending state so a stale alarm
++     * does not cause an immediate STOP wake-up. */
++    TIMER_IF_ClearAlarmWakeupFlags();
++
++#if defined(__HAL_GPIO_EXTI_CLEAR_IT)
++# if defined(ICM20948_INT_Pin)
++    __HAL_GPIO_EXTI_CLEAR_IT(ICM20948_INT_Pin);
++# endif
++# if defined(OP_KEY_Pin)
++    __HAL_GPIO_EXTI_CLEAR_IT(OP_KEY_Pin);
++# endif
++# if defined(PULSE_IN_Pin)
++    __HAL_GPIO_EXTI_CLEAR_IT(PULSE_IN_Pin);
++# endif
++# if defined(TEST_KEY_Pin)
++    __HAL_GPIO_EXTI_CLEAR_IT(TEST_KEY_Pin);
++# endif
++#endif
++
++#if defined(DMA1_Channel2_IRQn)
++    HAL_NVIC_ClearPendingIRQ(DMA1_Channel2_IRQn);
++#endif
++#if defined(EXTI0_IRQn)
++    HAL_NVIC_ClearPendingIRQ(EXTI0_IRQn);
++#endif
++#if defined(EXTI1_IRQn)
++    HAL_NVIC_ClearPendingIRQ(EXTI1_IRQn);
++#endif
++#if defined(EXTI15_10_IRQn)
++    HAL_NVIC_ClearPendingIRQ(EXTI15_10_IRQn);
++#endif
++#if defined(RTC_Alarm_IRQn)
++    HAL_NVIC_ClearPendingIRQ(RTC_Alarm_IRQn);
++#endif
++#if defined(USART1_IRQn)
++    HAL_NVIC_ClearPendingIRQ(USART1_IRQn);
++#endif
++#if defined(SUBGHZ_Radio_IRQn)
++    HAL_NVIC_ClearPendingIRQ(SUBGHZ_Radio_IRQn);
+ #endif
+ }
+ 
+@@ -277,10 +324,21 @@
+     UI_Radio_MarkRecoverNeeded();
+     prv_force_stop_pin_levels();
+ 
+-    /* Stop 직전 소프트 상태만 정리하고, 주기 작업에 필요한 공용 peripheral 경로는 유지 */
++    /* BATT_LVL은 wake source가 아니므로 stop 동안 analog/no-pull로 내려
++     * floating digital input에 의한 누설 전류를 줄인다. */
++#if defined(__HAL_RCC_GPIOA_CLK_ENABLE)
++    __HAL_RCC_GPIOA_CLK_ENABLE();
++#endif
++#if defined(BATT_LVL_GPIO_Port) && defined(BATT_LVL_Pin)
++    prv_set_gpio_analog(BATT_LVL_GPIO_Port, BATT_LVL_Pin);
++#endif
++
++    /* Stop 직전 소프트 상태만 정리하고, latched wake source는 비워
++     * STOP 진입 직후 즉시 재기상하는 현상을 막는다. */
+     UI_Core_ClearFlagsBeforeStop();
+     UI_GPIO_ClearEvents();
+     UI_UART_ResetRxBuffer();
++    prv_clear_pending_irq_sources_before_stop();
+ }
+ 
+ void UI_LPM_AfterStop_ReInitPeripherals(void)
+--- a/Core/Src/timer_if.c
++++ b/Core/Src/timer_if.c
+@@ -26,7 +26,7 @@
+ #include "stm32wlxx_ll_rtc.h"
+ 
+ /* USER CODE BEGIN Includes */
+-
++#include "stm32wlxx_ll_exti.h"
+ /* USER CODE END Includes */
+ 
+ /* External variables ---------------------------------------------------------*/
+@@ -192,6 +192,7 @@
+     TIMER_IF_StopTimer();
+     /** DeActivate the Alarm A enabled by STM32CubeMX during MX_RTC_Init() */
+     HAL_RTC_DeactivateAlarm(&hrtc, RTC_ALARM_A);
++    TIMER_IF_ClearAlarmWakeupFlags();
+     /*overload RTC feature enable*/
+     hrtc.IsEnabled.RtcFeatures = UINT32_MAX;
+ 
+@@ -212,6 +213,22 @@
+ 
+   /* USER CODE END TIMER_IF_Init_Last */
+   return ret;
++}
++
++void TIMER_IF_ClearAlarmWakeupFlags(void)
++{
++  /* RTC Alarm A uses EXTI line 17 on STM32WL.
++   * Clear both peripheral and EXTI/NVIC pending state so a stale alarm
++   * does not cause an immediate STOP wake-up. */
++  __HAL_RTC_ALARM_CLEAR_FLAG(&hrtc, RTC_FLAG_ALRAF);
++
++#if defined(LL_EXTI_ClearFlag_0_31) && defined(LL_EXTI_LINE_17)
++  LL_EXTI_ClearFlag_0_31(LL_EXTI_LINE_17);
++#endif
++
++#if defined(RTC_Alarm_IRQn)
++  HAL_NVIC_ClearPendingIRQ(RTC_Alarm_IRQn);
++#endif
+ }
+ 
+ UTIL_TIMER_Status_t TIMER_IF_StartTimer(uint32_t timeout)
+@@ -248,12 +265,11 @@
+   /* USER CODE BEGIN TIMER_IF_StopTimer */
+ 
+   /* USER CODE END TIMER_IF_StopTimer */
+-  /* Clear RTC Alarm Flag */
+-  __HAL_RTC_ALARM_CLEAR_FLAG(&hrtc, RTC_FLAG_ALRAF);
+-  /* Disable the Alarm A interrupt */
++  /* Clear/disable the Alarm A source */
+   HAL_RTC_DeactivateAlarm(&hrtc, RTC_ALARM_A);
+   /*overload RTC feature enable*/
+   hrtc.IsEnabled.RtcFeatures = UINT32_MAX;
++  TIMER_IF_ClearAlarmWakeupFlags();
+   /* USER CODE BEGIN TIMER_IF_StopTimer_Last */
+ 
+   /* USER CODE END TIMER_IF_StopTimer_Last */
+--- a/Core/Inc/timer_if.h
++++ b/Core/Inc/timer_if.h
+@@ -126,6 +126,14 @@
+ uint32_t TIMER_IF_Convert_Tick2ms(uint32_t tick);
+ 
+ /**
++  * @brief Clear stale RTC Alarm wakeup/pending sources
++  * @note Clears the RTC alarm peripheral flag, EXTI line 17 pending flag,
++  *       and RTC_Alarm NVIC pending bit so STOP mode does not resume
++  *       immediately because of a latched alarm wake request.
++  */
++void TIMER_IF_ClearAlarmWakeupFlags(void);
++
++/**
+   * @brief Get rtc time
+   * @param[out] subSeconds in ticks
+   * @return time seconds
+--- a/Core/Src/stm32_lpm_if.c
++++ b/Core/Src/stm32_lpm_if.c
+@@ -108,6 +108,8 @@
+   LL_PWR_ClearFlag_C1STOP_C1STB();
+ 
+   /* USER CODE BEGIN EnterStopMode_2 */
++  __DSB();
++  __ISB();
+ 
+   /* USER CODE END EnterStopMode_2 */
+   HAL_PWREx_EnterSTOP2Mode(PWR_STOPENTRY_WFI);
