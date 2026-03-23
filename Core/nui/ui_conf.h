@@ -159,7 +159,7 @@
 #define UI_NODE_TEMP_SAMPLE_COUNT    (10u)
 #define UI_NODE_TEMP_TRIM_COUNT      (2u)
 #define UI_NODE_ICM_SAMPLE_COUNT     (100u)
-#define UI_NODE_ICM_TRIM_COUNT       (10u)
+#define UI_NODE_ICM_TRIM_COUNT       (20u) /* 100개 중 양끝 20개 제외 -> 중간 60개 사용 */
 #define UI_NODE_LTC_SAMPLE_COUNT     (50u)
 #define UI_NODE_LTC_TRIM_COUNT       (5u)
 

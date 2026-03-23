@@ -585,9 +585,9 @@ bool ND_Sensors_MeasureAll(ND_SensorResult_t* out, uint8_t sensor_en_mask)
     /* 기본 invalid */
     out->batt_lvl = UI_NODE_BATT_LVL_INVALID;
     out->temp_c = UI_NODE_TEMP_INVALID_C;
-    out->x = (int16_t)0;
-    out->y = (int16_t)0;
-    out->z = (int16_t)0;
+    out->x = (int16_t)0xFFFFu;
+    out->y = (int16_t)0xFFFFu;
+    out->z = (int16_t)0xFFFFu;
     out->adc = 0;
     out->pulse_cnt = 0;
     if ((sensor_en_mask & UI_SENSOR_EN_PULSE) != 0u) {
@@ -629,6 +629,7 @@ bool ND_Sensors_MeasureAll(ND_SensorResult_t* out, uint8_t sensor_en_mask)
         int16_t xs[UI_NODE_ICM_SAMPLE_COUNT];
         int16_t ys[UI_NODE_ICM_SAMPLE_COUNT];
         int16_t zs[UI_NODE_ICM_SAMPLE_COUNT];
+        bool icm_samples_ok = true;
 
         for (uint32_t i = 0u; i < UI_NODE_ICM_SAMPLE_COUNT; i++) {
             int16_t x = 0;
@@ -636,9 +637,8 @@ bool ND_Sensors_MeasureAll(ND_SensorResult_t* out, uint8_t sensor_en_mask)
             int16_t z = 0;
 
             if (!prv_icm_read_accel(&x, &y, &z)) {
-                x = (int16_t)0xFFFFu;
-                y = (int16_t)0xFFFFu;
-                z = (int16_t)0xFFFFu;
+                icm_samples_ok = false;
+                break;
             }
 
             xs[i] = x;
@@ -647,9 +647,15 @@ bool ND_Sensors_MeasureAll(ND_SensorResult_t* out, uint8_t sensor_en_mask)
             HAL_Delay(2u);
         }
 
-        out->x = prv_trimmed_mean_i16(xs, UI_NODE_ICM_SAMPLE_COUNT, UI_NODE_ICM_TRIM_COUNT);
-        out->y = prv_trimmed_mean_i16(ys, UI_NODE_ICM_SAMPLE_COUNT, UI_NODE_ICM_TRIM_COUNT);
-        out->z = prv_trimmed_mean_i16(zs, UI_NODE_ICM_SAMPLE_COUNT, UI_NODE_ICM_TRIM_COUNT);
+        if (icm_samples_ok) {
+            out->x = prv_trimmed_mean_i16(xs, UI_NODE_ICM_SAMPLE_COUNT, UI_NODE_ICM_TRIM_COUNT);
+            out->y = prv_trimmed_mean_i16(ys, UI_NODE_ICM_SAMPLE_COUNT, UI_NODE_ICM_TRIM_COUNT);
+            out->z = prv_trimmed_mean_i16(zs, UI_NODE_ICM_SAMPLE_COUNT, UI_NODE_ICM_TRIM_COUNT);
+        } else {
+            out->x = (int16_t)0xFFFFu;
+            out->y = (int16_t)0xFFFFu;
+            out->z = (int16_t)0xFFFFu;
+        }
         (void)prv_icm_sleep();
     }
 #endif

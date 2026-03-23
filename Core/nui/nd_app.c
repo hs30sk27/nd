@@ -172,9 +172,9 @@ static int8_t prv_apply_nd_internal_temp_comp(int8_t temp_c)
     return (int8_t)v;
 }
 
-static uint16_t prv_scale_signed_axis_to_u16(int16_t raw, int32_t center_raw)
+static uint16_t prv_scale_signed_axis_to_u16(int16_t raw)
 {
-    int32_t delta = (int32_t)raw - center_raw;
+    int32_t delta = (int32_t)raw;
     uint32_t numer;
 
     if (delta < -(int32_t)UI_NODE_AXIS_RAW_HALF_RANGE) {
@@ -184,42 +184,31 @@ static uint16_t prv_scale_signed_axis_to_u16(int16_t raw, int32_t center_raw)
         delta = (int32_t)UI_NODE_AXIS_RAW_HALF_RANGE;
     }
 
-    numer = (uint32_t)(delta + (int32_t)UI_NODE_AXIS_RAW_HALF_RANGE) * UI_NODE_MEAS_SCALED_MAX_U16;
+    numer = (uint32_t)(delta + (int32_t)UI_NODE_AXIS_RAW_HALF_RANGE) * UI_NODE_AXIS_VALID_SPAN_U16;
     numer += (uint32_t)UI_NODE_AXIS_RAW_HALF_RANGE;
-    return (uint16_t)(numer / (uint32_t)(2u * UI_NODE_AXIS_RAW_HALF_RANGE));
+    return (uint16_t)(UI_NODE_AXIS_VALID_MIN_U16 +
+                      (uint16_t)(numer / (uint32_t)(2u * UI_NODE_AXIS_RAW_HALF_RANGE)));
 }
 
 static uint16_t prv_scale_adc_avg_to_u16(uint16_t raw)
 {
-    uint32_t numer = ((uint32_t)raw * UI_NODE_MEAS_SCALED_MAX_U16) + (UI_NODE_ADC_RAW_MAX / 2u);
+    uint32_t numer = ((uint32_t)raw * UI_NODE_ADC_SCALED_MAX_U16) + (UI_NODE_ADC_RAW_MAX / 2u);
     return (uint16_t)(numer / UI_NODE_ADC_RAW_MAX);
 }
 
 static uint16_t prv_encode_payload_x(int16_t raw)
 {
-    return prv_scale_signed_axis_to_u16(raw, 0);
+    return prv_scale_signed_axis_to_u16(raw);
 }
 
 static uint16_t prv_encode_payload_y(int16_t raw)
 {
-    return prv_scale_signed_axis_to_u16(raw, 0);
+    return prv_scale_signed_axis_to_u16(raw);
 }
 
 static uint16_t prv_encode_payload_z(int16_t raw)
 {
-    int32_t z_shifted = (int32_t)raw - (int32_t)UI_NODE_Z_RAW_CENTER;
-
-    if (z_shifted == 0) {
-        return UI_NODE_AXIS_CENTER_U16;
-    }
-    if (z_shifted < -(int32_t)UI_NODE_AXIS_RAW_HALF_RANGE) {
-        z_shifted = -(int32_t)UI_NODE_AXIS_RAW_HALF_RANGE;
-    }
-    if (z_shifted > (int32_t)UI_NODE_AXIS_RAW_HALF_RANGE) {
-        z_shifted = (int32_t)UI_NODE_AXIS_RAW_HALF_RANGE;
-    }
-
-    return prv_scale_signed_axis_to_u16((int16_t)z_shifted, 0);
+    return prv_scale_signed_axis_to_u16(raw);
 }
 
 static uint16_t prv_encode_payload_adc(uint16_t raw)
@@ -329,8 +318,16 @@ static void prv_led1(bool on)
 #endif
 }
 
-static void prv_boot_beacon_led1(bool on)
+static void prv_boot_beacon_leds(bool on)
 {
+    (void)on;
+
+#if defined(LED0_GPIO_Port) && defined(LED0_Pin)
+    if (!UI_BLE_IsActive()) {
+        HAL_GPIO_WritePin(LED0_GPIO_Port, LED0_Pin, on ? GPIO_PIN_SET : GPIO_PIN_RESET);
+    }
+#endif
+
 #if UI_HAVE_LED1
     if (on) {
         if (!UI_BLE_IsActive()) {
@@ -339,8 +336,6 @@ static void prv_boot_beacon_led1(bool on)
     } else {
         HAL_GPIO_WritePin(LED1_GPIO_Port, LED1_Pin, GPIO_PIN_RESET);
     }
-#else
-    (void)on;
 #endif
 }
 
@@ -355,7 +350,7 @@ static void prv_tmr_boot_led_blink_cb(void *context)
     }
 
     s_boot_led_blink_on = !s_boot_led_blink_on;
-    prv_boot_beacon_led1(s_boot_led_blink_on);
+    prv_boot_beacon_leds(s_boot_led_blink_on);
     next_ms = s_boot_led_blink_on ? ND_BOOT_BEACON_ON_MS : ND_BOOT_BEACON_OFF_MS;
     (void)UTIL_TIMER_Stop(&s_tmr_boot_led_blink);
     (void)UTIL_TIMER_SetPeriod(&s_tmr_boot_led_blink, next_ms);
@@ -366,7 +361,7 @@ static void prv_boot_led_blink_start(void)
 {
     s_boot_led_blink_active = true;
     s_boot_led_blink_on = true;
-    prv_boot_beacon_led1(true);
+    prv_boot_beacon_leds(true);
     (void)UTIL_TIMER_Stop(&s_tmr_boot_led_blink);
     (void)UTIL_TIMER_SetPeriod(&s_tmr_boot_led_blink, ND_BOOT_BEACON_ON_MS);
     (void)UTIL_TIMER_Start(&s_tmr_boot_led_blink);
@@ -377,7 +372,7 @@ static void prv_boot_led_blink_stop(void)
     s_boot_led_blink_active = false;
     s_boot_led_blink_on = false;
     (void)UTIL_TIMER_Stop(&s_tmr_boot_led_blink);
-    prv_boot_beacon_led1(false);
+    prv_boot_beacon_leds(false);
 }
 
 static void prv_led1_pulse_off_cb(void *context)
@@ -392,18 +387,6 @@ static void prv_led1_pulse_10ms(void)
     (void)UTIL_TIMER_Stop(&s_tmr_led1_pulse);
     (void)UTIL_TIMER_SetPeriod(&s_tmr_led1_pulse, 10u);
     (void)UTIL_TIMER_Start(&s_tmr_led1_pulse);
-}
-
-static void prv_power_on_led_blink(void)
-{
-    for (uint32_t i = 0u; i < 2u; i++) {
-        prv_led0(true);
-        prv_led1(true);
-        HAL_Delay(100u);
-        prv_led0(false);
-        prv_led1(false);
-        HAL_Delay(100u);
-    }
 }
 
 static const char* prv_batt_text_from_level(uint8_t batt_lvl)
@@ -2177,7 +2160,7 @@ void ND_App_OnBleSessionStart(void)
         return;
     }
 
-    prv_boot_beacon_led1(false);
+    prv_boot_beacon_leds(false);
 
     if (s_boot_listen_active) {
         s_boot_listen_stop_after_ble = true;
@@ -2545,7 +2528,9 @@ void ND_App_Init(void)
     }
 
     prv_refresh_mode_from_config();
-    prv_power_on_led_blink();
+
+    /* 부팅 직후 beacon miss를 줄이기 위해 blocking LED blink는 제거했다.
+     * 시각 피드백은 prv_begin_boot_listen()의 timer-driven blink가 담당한다. */
 
     UTIL_TIMER_Create(&s_tmr_boot_listen, 0u, UTIL_TIMER_ONESHOT, prv_tmr_boot_cb, NULL);
     UTIL_TIMER_Create(&s_tmr_beacon_sched, 0u, UTIL_TIMER_ONESHOT, prv_tmr_beacon_cb, NULL);

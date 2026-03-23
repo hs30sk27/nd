@@ -178,25 +178,21 @@ static void UI_TaskMain(void)
 
     if ((ev & UI_GPIO_EVT_TEST_KEY) != 0u)
     {
-        /* 공통: TEST_KEY 토글 동작
-         * - BLE OFF 상태면 3분 ON
-         * - BLE ON 상태면 즉시 OFF + stop 진입 요청
-         */
-        if (UI_BLE_IsActive())
-        {
-            UI_BLE_RequestStopNow();
-        }
-        else
+        /* 공통: TEST_KEY = BLE ON / timeout 연장 */
+        if (!UI_BLE_IsActive())
         {
             ND_App_OnBleSessionStart();
-            UI_BLE_EnableForMs(UI_BLE_ACTIVE_MS);
         }
+        UI_BLE_EnableForMs(UI_BLE_ACTIVE_MS);
     }
 
     if ((ev & UI_GPIO_EVT_OP_KEY) != 0u)
     {
-        /* Node 전용: override해서 처리 */
-        UI_Hook_OnOpKeyPressed();
+        /* 공통: OP_KEY = BLE OFF */
+        if (UI_BLE_IsActive())
+        {
+            UI_BLE_RequestStopNow();
+        }
     }
 
     /* 3) BLE 이벤트 처리 (task bit이 부족한 경우 UI_MAIN에서 처리됨) */

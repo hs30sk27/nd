@@ -17,7 +17,7 @@
  *  - BATT     uint8  (1=normal, 0=low)
  *  - TEMP     int8   ('C) range -50..100
  *  - BCN_CNT  uint16
- *  - X,Y,Z    uint16 each (scaled 0..49999)
+ *  - X,Y,Z    uint16 each (0=invalid/test fail, valid=1..50000)
  *  - ADC      uint16      (scaled 0..49999)
  *  - PULSE    uint32
  *  - SENSOR_EN 1 byte (bit0=ICM20948, bit1=ADC, bit2=PULSE)
@@ -40,10 +40,11 @@ extern "C" {
 #define UI_NODE_PAYLOAD_LEN     (UI_NET_ID_LEN + 20u)
 
 #define UI_NODE_MEAS_UNUSED_U16      (0u)
-#define UI_NODE_MEAS_SCALED_MAX_U16  (49999u)
-#define UI_NODE_AXIS_CENTER_U16      (25000u)
+#define UI_NODE_AXIS_VALID_MIN_U16   (1u)
+#define UI_NODE_AXIS_VALID_MAX_U16   (50000u)
+#define UI_NODE_AXIS_VALID_SPAN_U16  ((UI_NODE_AXIS_VALID_MAX_U16) - (UI_NODE_AXIS_VALID_MIN_U16))
+#define UI_NODE_ADC_SCALED_MAX_U16   (49999u)
 #define UI_NODE_AXIS_RAW_HALF_RANGE  (16384)
-#define UI_NODE_Z_RAW_CENTER         (16384) /* z 변환 기준값: raw-16384 == 0 -> 25000 */
 #define UI_NODE_ADC_RAW_MAX          (65535u)
 
 /* 비콘 파싱 결과 */

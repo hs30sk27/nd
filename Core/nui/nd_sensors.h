@@ -6,7 +6,7 @@
  * 요구사항:
  *  1) 내부 온도(ADC): N회 측정 -> sort -> 양끝 trim 후 중간값 평균
  *  2) ICM20948: WHO_AM_I 확인 실패 시 스킵(0xFFFF 처리)
- *     N회 측정 -> sort -> 양끝 trim 후 중간값 평균
+ *     100회 측정 -> sort -> 양끝 20개 trim 후 중간 60개 평균
  *  3) LTC2450(외부 ADC): N회 측정 -> sort -> 양끝 trim 후 중간값 평균
  *  4) PULSE COUNT: PULSE_IN EXTI 발생 시 ++
  *

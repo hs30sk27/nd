@@ -112,6 +112,7 @@ void PWR_EnterStopMode(void)
 #if defined(PWR_FLAG_WU)
   __HAL_PWR_CLEAR_FLAG(PWR_FLAG_WU);
 #endif
+  HAL_PWREx_EnableFlashPowerDown(PWR_FLASHPD_LPSLEEP); // Flash 전원 차단
 
   LL_PWR_ClearFlag_C1STOP_C1STB();
 
@@ -143,7 +144,6 @@ void PWR_ExitStopMode(void)
   /* USER CODE BEGIN ExitStopMode_2 */
 #endif
   __NOP();
-
   SystemClock_Config();
   HAL_ResumeTick();
   UI_LPM_AfterStop_ReInitPeripherals();
