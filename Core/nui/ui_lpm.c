@@ -7,6 +7,7 @@
 #include "ui_uart.h"
 #include "ui_ble.h"
 #include "ui_time.h"
+#include "ui_radio.h"
 #include "radio.h"
 
 #include "stm32_lpm.h"
@@ -261,57 +262,35 @@ void UI_UART1_TxDma_DeInit(void)
 
 void UI_LPM_BeforeStop_DeInitPeripherals(void)
 {
+    /*
+     * 주기 센서/비콘/TX 스케줄은 RTC alarm + ND 작업 이벤트로 깨어난 뒤 즉시 이어져야 한다.
+     * Stop 직전마다 UART/SPI/ADC를 전부 DeInit 하고 SPI GPIO를 analog 로 바꾸면
+     * wake 직후 경로가 너무 공격적으로 바뀌어 주기 작업이 흔들릴 수 있으므로,
+     * ND 경로에서는 외부 부하만 낮추고 MCU 내부 런타임 경로는 유지한다.
+     */
     UI_Time_SaveToBackupNow();
 
-    /*
-     * Stop 직전 외부 부하와 RF를 먼저 낮춘다.
-     * - Radio.Sleep(): SubGHz 수신/송신이 stop 직전까지 남아 전류를 먹는 것을 방지
-     * - RF_TXEN/RF_RXEN LOW, ADC_EN LOW, BT_EN LOW: 외부 회로 정지
-     */
-//    if (Radio.Sleep != NULL)
+    if (Radio.Sleep != NULL)
     {
         Radio.Sleep();
     }
+    UI_Radio_MarkRecoverNeeded();
+    prv_force_stop_pin_levels();
 
-//    prv_force_stop_pin_levels();
-
-    /* ------------------------------------------------------------------ */
-    /* SW 상태 정리: 다음 wake-up 후 재진입 시 꼬임 방지                  */
-    /* ------------------------------------------------------------------ */
+    /* Stop 직전 소프트 상태만 정리하고, 주기 작업에 필요한 공용 peripheral 경로는 유지 */
     UI_Core_ClearFlagsBeforeStop();
     UI_GPIO_ClearEvents();
     UI_UART_ResetRxBuffer();
-    UI_BLE_ClearFlagsBeforeStop();
-    //prv_abort_peripheral_activity_before_deinit();
-    prv_set_gpio_analog(GPIOB, GPIO_PIN_3 | GPIO_PIN_4 | GPIO_PIN_5);
-
-#if defined(HAL_ADC_MODULE_ENABLED)
-    (void)HAL_ADC_Stop(&hadc);
-    (void)HAL_ADC_DeInit(&hadc);
-    prv_disable_adc_clock(&hadc);
-#endif
-
-#if defined(HAL_UART_MODULE_ENABLED)
-    (void)HAL_UART_DeInit(&huart1);
-    prv_disable_uart_clock(&huart1);
-#endif
-
-#if defined(HAL_SPI_MODULE_ENABLED)
-    (void)HAL_SPI_DeInit(&hspi1);
-    prv_disable_spi_clock(&hspi1);
-#endif
-
-//    prv_configure_deinited_pins_for_stop();
 }
 
 void UI_LPM_AfterStop_ReInitPeripherals(void)
 {
     /*
-     * Wake-up 직후 전체 주변장치 재초기화는 하지 않는다.
-     * 단, stop 전에 analog로 내렸던 입력 핀 중 런타임에서 바로 필요할 수 있는
-     * GPIO만 원래 모드로 되돌린다.
+     * Wake-up 직후에는 입력 GPIO만 복구하고,
+     * 다음 RX/TX 준비에서 radio config 가 다시 clean 하게 걸리도록 mark 한다.
      */
     prv_restore_pins_after_stop();
+    UI_Radio_MarkRecoverNeeded();
 }
 
 void UI_LPM_EnterStopNow(void)

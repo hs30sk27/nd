@@ -7,16 +7,17 @@
 static volatile uint32_t s_events = 0;
 static volatile uint32_t s_pulse_count = 0;
 
-/* TEST_KEY / OP_KEY per-key debounce state
+/*
+ * TEST_KEY / OP_KEY per-key debounce state
  *
  * rev34:
  * - 200ms 이내 채터링은 계속 무시
- * - EXTI(FALLING)로 들어온 첫 눌림은 즉시 key press로 인정
- * - callback 시점의 현재 GPIO level 재검사는 하지 않음
- *   (STOP wake-up 직후 짧은 첫 눌림이 소모되는 문제 방지)
+ * - main.c 에서 EXTI 가 GPIO_MODE_IT_FALLING 으로만 들어오므로,
+ *   callback 시점의 현재 GPIO level 재검사는 하지 않음
+ * - 첫 눌림이 wake-up 에만 소모되고 이벤트가 버려지는 현상 방지
  */
 static volatile uint32_t s_test_key_last_ms = 0;
-static volatile uint32_t s_op_key_last_ms = 0;
+static volatile uint32_t s_op_key_last_ms   = 0;
 
 static bool prv_accept_key_event(uint16_t GPIO_Pin)
 {

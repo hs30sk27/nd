@@ -93,20 +93,18 @@ void PWR_EnterStopMode(void)
 {
   /* USER CODE BEGIN EnterStopMode_1 */
   UI_LPM_BeforeStop_DeInitPeripherals();
-__NOP();
+  __NOP();
   /* USER CODE END EnterStopMode_1 */
+
   HAL_SuspendTick();
-#if defined(SCB_ICSR_PENDSTCLR_Msk)
-  SCB->ICSR = SCB_ICSR_PENDSTCLR_Msk;
-#endif
-#if defined(SCB_ICSR_PENDSVCLR_Msk)
-  SCB->ICSR = SCB_ICSR_PENDSVCLR_Msk;
-#endif
 #if defined(PWR_FLAG_WU)
   __HAL_PWR_CLEAR_FLAG(PWR_FLAG_WU);
 #endif
 
-  /* Clear Status Flag before entering STOP/STANDBY Mode */
+  /*
+   * RTC alarm / EXTI 로 깨운 뒤 sequencer task 와 event flag 가 자연스럽게 이어지도록
+   * stop 직전에 PendSV/PendST 를 강제로 지우지 않는다.
+   */
   LL_PWR_ClearFlag_C1STOP_C1STB();
 
   /* USER CODE BEGIN EnterStopMode_2 */
