@@ -138,10 +138,16 @@ static char s_test_session_restore_unit = 'H';
 #define ND_SEARCH_SCAN_INTERVAL_MS_BASE   (90000u)
 #define ND_SEARCH_SCAN_INTERVAL_MS_JITTER (30000u)
 #define ND_SYNC_BKP_MAGIC                 (0x4E445359u)
-#define ND_SYNC_BKP_DR_MAGIC              (RTC_BKP_DR0)
-#define ND_SYNC_BKP_DR_EPOCH              (RTC_BKP_DR1)
-#define ND_SYNC_BKP_DR_META               (RTC_BKP_DR2)
-#define ND_SYNC_BKP_DR_CRC                (RTC_BKP_DR3)
+/*
+ * RTC backup register usage separation
+ * - timer_if.c : DR0~DR2
+ * - ui_time.c  : DR4~DR7
+ * - nd sync    : DR8~DR11
+ */
+#define ND_SYNC_BKP_DR_MAGIC              (RTC_BKP_DR8)
+#define ND_SYNC_BKP_DR_EPOCH              (RTC_BKP_DR9)
+#define ND_SYNC_BKP_DR_META               (RTC_BKP_DR10)
+#define ND_SYNC_BKP_DR_CRC                (RTC_BKP_DR11)
 #define ND_RX_RETRY_DELAY_MS              (100u)
 #define ND_TEST_SESSION_MS             (60u * 60u * 1000u)
 
@@ -929,10 +935,17 @@ static void prv_enter_stop_now_if_possible(void)
 
 static void prv_request_stop_mode_if_possible(void)
 {
-    if ((s_evt_flags == 0u) && !UI_BLE_IsActive() && (s_state == ND_STATE_IDLE)) {
-        prv_enter_stop_now_if_possible();
-        return;
-    }
+    /*
+     * STOP2는 ND main task 문맥에서만 진입시킨다.
+     *
+     * 이 함수는 radio callback / RTC timer callback 뒤 경로에서도 호출될 수 있으므로
+     * 여기서 바로 prv_enter_stop_now_if_possible()를 호출하면 ISR 문맥에서 STOP2로
+     * 들어가게 될 수 있다.
+     *
+     * 부팅 직후 beacon 수신 다음에 주기 beacon/sensor/TX가 멈추는 현상을 피하기 위해
+     * 여기서는 직접 진입하지 않고 ND_EVT_ENTER_STOP만 올려서
+     * ND_App_Process()가 task 문맥에서 안전하게 처리하도록 고정한다.
+     */
     if ((s_evt_flags & ND_EVT_ENTER_STOP) != 0u) {
         return;
     }
