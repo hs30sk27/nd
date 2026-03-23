@@ -185,8 +185,10 @@ void UI_Cmd_ProcessLine(const char* line_in)
 {
     if (line_in == NULL) { return; }
 
-    /* 명령 수신 시 BLE 동작 시간이 3분 연장 (요구사항) */
-    UI_BLE_ExtendMs(UI_BLE_ACTIVE_MS);
+    /*
+     * BLE 세션 유지/연장은 물리 버튼으로만 허용한다.
+     * 명령 수신만으로 timeout을 재연장하지 않는다.
+     */
 
     /* line_in은 상위에서 buffer를 넘겨주므로 안전하게 로컬 복사 */
     char line[UI_UART_LINE_MAX];

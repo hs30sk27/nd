@@ -392,6 +392,14 @@ void HAL_RTC_AlarmAEventCallback(RTC_HandleTypeDef *hrtc)
   /* USER CODE BEGIN HAL_RTC_AlarmAEventCallback */
 
   /* USER CODE END HAL_RTC_AlarmAEventCallback */
+  UNUSED(hrtc);
+  /*
+   * RTC Alarm callback 안에서 flag/EXTI/NVIC pending 을 먼저 비운다.
+   * nd는 stop 직전에도 wake source를 정리하지만, callback 직후에 latched alarm 이
+   * 남아 있으면 다음 STOP 진입에서 즉시 재기상하거나 RTC 기반 task 흐름이 흔들릴 수 있다.
+   * gw와 동일하게 callback 시점에 즉시 정리해 재기상 루프를 끊는다.
+   */
+  TIMER_IF_ClearAlarmWakeupFlags();
   UTIL_TIMER_IRQ_MAP_PROCESS();
   /* USER CODE BEGIN HAL_RTC_AlarmAEventCallback_Last */
 

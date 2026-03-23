@@ -97,14 +97,22 @@ void PWR_EnterStopMode(void)
   /* USER CODE END EnterStopMode_1 */
 
   HAL_SuspendTick();
+  /*
+   * nd는 stop 직전 UI/RTC wake source를 이미 별도로 정리한다.
+   * 그 위에 SysTick/PendSV pending 이 남아 있으면 WFI 직후 바로 빠져나와
+   * STOP2에 못 머물거나 진입 직후 즉시 재기상하는 현상이 생길 수 있다.
+   * gw와 동일하게 stale scheduler/tick pending 을 비운 뒤 STOP2로 진입한다.
+   */
+#if defined(SCB_ICSR_PENDSTCLR_Msk)
+  SCB->ICSR = SCB_ICSR_PENDSTCLR_Msk;
+#endif
+#if defined(SCB_ICSR_PENDSVCLR_Msk)
+  SCB->ICSR = SCB_ICSR_PENDSVCLR_Msk;
+#endif
 #if defined(PWR_FLAG_WU)
   __HAL_PWR_CLEAR_FLAG(PWR_FLAG_WU);
 #endif
 
-  /*
-   * RTC alarm / EXTI 로 깨운 뒤 sequencer task 와 event flag 가 자연스럽게 이어지도록
-   * stop 직전에 PendSV/PendST 를 강제로 지우지 않는다.
-   */
   LL_PWR_ClearFlag_C1STOP_C1STB();
 
   /* USER CODE BEGIN EnterStopMode_2 */

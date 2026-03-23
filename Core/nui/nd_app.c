@@ -134,7 +134,6 @@ static char s_test_session_restore_unit = 'H';
 #define ND_SYNC_NOTIFY_DONE_STR           "SYNC OK\r\n"
 #define ND_SYNC_NOTIFY_TIMEOUT_STR        "SYNC ERROR\r\n"
 #define ND_SYNC_NOTIFY_TX_FAIL_STR        "SYNC ERROR\r\n"
-#define ND_SYNC_BLE_HOLD_MS               (7000u)
 #define ND_SEARCH_SCAN_INTERVAL_MS_BASE   (90000u)
 #define ND_SEARCH_SCAN_INTERVAL_MS_JITTER (30000u)
 #define ND_SYNC_BKP_MAGIC                 (0x4E445359u)
@@ -280,17 +279,15 @@ static bool prv_radio_ready_for_rx(void)
 
 static void prv_hold_ble_for_sync(void)
 {
-    uint32_t hold_ms = UI_BLE_ACTIVE_MS;
-
+    /*
+     * BLE 세션 유지/연장은 버튼에 의해서만 이뤄진다.
+     * SYNC 상태 메시지는 이미 켜져 있는 BLE 세션에서만 전송하고,
+     * 여기서는 UART 준비만 보장한다.
+     */
     if (!UI_BLE_IsActive()) {
         return;
     }
 
-    if (hold_ms < ND_SYNC_BLE_HOLD_MS) {
-        hold_ms = ND_SYNC_BLE_HOLD_MS;
-    }
-
-    UI_BLE_EnableForMs(hold_ms);
     UI_BLE_EnsureSerialReady();
 }
 
@@ -301,6 +298,9 @@ static void prv_boot_led_blink_stop(void);
 static void prv_send_sync_status(const char *msg)
 {
     if ((msg == NULL) || (*msg == '\0')) {
+        return;
+    }
+    if (!UI_BLE_IsActive()) {
         return;
     }
 
@@ -742,6 +742,9 @@ static void prv_send_test_result_ble(const ND_SensorResult_t* r)
     uint16_t sa = UI_NODE_MEAS_UNUSED_U16;
 
     if (r == NULL) {
+        return;
+    }
+    if (!UI_BLE_IsActive()) {
         return;
     }
 
@@ -1685,7 +1688,7 @@ static void prv_enter_unsync_search(void)
         s_beacon_miss_count = 1u;
     }
     (void)UTIL_TIMER_Stop(&s_tmr_reminder_sched);
-    if (UI_BLE_IsActive() && !s_test_session_active) {
+    if (UI_BLE_IsActive()) {
         prv_clear_pending_runtime_rx_events();
         prv_stop_sensor_and_tx_timers();
         return;
@@ -1934,7 +1937,7 @@ static bool prv_restart_current_rx_window(void)
 
 static void prv_continue_boot_listen_or_schedule(void)
 {
-    if (UI_BLE_IsActive() && !s_test_session_active) {
+    if (UI_BLE_IsActive()) {
         prv_clear_pending_runtime_rx_events();
         prv_stop_sensor_and_tx_timers();
         return;
@@ -2142,7 +2145,9 @@ bool UI_Hook_OnTestStartRequested(void)
     bool measure_ok;
 
     prv_led1(true);
-    UI_BLE_EnableForMs(UI_BLE_ACTIVE_MS);
+    if (UI_BLE_IsActive()) {
+        UI_BLE_EnsureSerialReady();
+    }
     prv_start_test_session_from_cmd();
     measure_ok = ND_Sensors_MeasureAll(&r, UI_GetConfig()->sensor_en_mask);
     if (measure_ok) {
