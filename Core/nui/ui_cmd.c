@@ -177,7 +177,7 @@ static void prv_send_setting_read(void)
 static void prv_apply_nd_ble_name(uint8_t node_num)
 {
     char ble_name[16];
-    (void)snprintf(ble_name, sizeof(ble_name), "BT ND %02u", (unsigned)node_num);
+    (void)snprintf(ble_name, sizeof(ble_name), "ND NUM %u", (unsigned)node_num);
     (void)UI_BLE_ApplyDeviceName(ble_name);
 }
 
