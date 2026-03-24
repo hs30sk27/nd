@@ -97,14 +97,62 @@ static void prv_restore_gpio_input(GPIO_TypeDef *port, uint32_t pin, uint32_t mo
     HAL_GPIO_Init(port, &g);
 }
 
+static void prv_restore_gpio_output(GPIO_TypeDef *port, uint32_t pin, GPIO_PinState level)
+{
+    GPIO_InitTypeDef g = {0};
+
+    if ((port == NULL) || (pin == 0u))
+    {
+        return;
+    }
+
+    HAL_GPIO_WritePin(port, pin, level);
+    g.Pin = pin;
+    g.Mode = GPIO_MODE_OUTPUT_PP;
+    g.Pull = GPIO_NOPULL;
+    g.Speed = GPIO_SPEED_FREQ_LOW;
+    HAL_GPIO_Init(port, &g);
+}
+
+static bool prv_uart_is_inited(void)
+{
+    return ((huart1.Instance != NULL) &&
+            ((huart1.gState != HAL_UART_STATE_RESET) ||
+             (huart1.RxState != HAL_UART_STATE_RESET)));
+}
+
+static bool prv_spi_is_inited(void)
+{
+#if defined(HAL_SPI_MODULE_ENABLED)
+    return ((hspi1.Instance != NULL) && (hspi1.State != HAL_SPI_STATE_RESET));
+#else
+    return false;
+#endif
+}
+
+static bool prv_adc_is_inited(void)
+{
+#if defined(HAL_ADC_MODULE_ENABLED)
+    return ((hadc.Instance != NULL) && (hadc.State != HAL_ADC_STATE_RESET));
+#else
+    return false;
+#endif
+}
+
 static void prv_abort_peripheral_activity_before_deinit(void)
 {
 #if defined(HAL_UART_MODULE_ENABLED)
-    (void)HAL_UART_Abort(&huart1);
+    if (prv_uart_is_inited())
+    {
+        (void)HAL_UART_Abort(&huart1);
+    }
 #endif
 
 #if defined(HAL_SPI_MODULE_ENABLED)
-    (void)HAL_SPI_Abort(&hspi1);
+    if (prv_spi_is_inited())
+    {
+        (void)HAL_SPI_Abort(&hspi1);
+    }
 #endif
 }
 
@@ -132,6 +180,9 @@ static void prv_configure_deinited_pins_for_stop(void)
 #if defined(BLE_RX_GPIO_Port) && defined(BLE_RX_Pin)
     prv_set_gpio_analog(BLE_RX_GPIO_Port, BLE_RX_Pin);
 #endif
+#if defined(ADC_CS_GPIO_Port) && defined(ADC_CS_Pin)
+    prv_set_gpio_analog(ADC_CS_GPIO_Port, ADC_CS_Pin);
+#endif
 #if defined(GPIOB)
     prv_set_gpio_analog(GPIOB, GPIO_PIN_3 | GPIO_PIN_4 | GPIO_PIN_5);
 #endif
@@ -142,6 +193,9 @@ static void prv_restore_pins_after_stop(void)
 #if defined(__HAL_RCC_GPIOA_CLK_ENABLE)
     __HAL_RCC_GPIOA_CLK_ENABLE();
 #endif
+#if defined(__HAL_RCC_GPIOB_CLK_ENABLE)
+    __HAL_RCC_GPIOB_CLK_ENABLE();
+#endif
 
 #if defined(BATT_LVL_GPIO_Port) && defined(BATT_LVL_Pin)
     prv_restore_gpio_input(BATT_LVL_GPIO_Port, BATT_LVL_Pin, GPIO_MODE_INPUT, GPIO_PULLUP);
@@ -151,6 +205,9 @@ static void prv_restore_pins_after_stop(void)
 #endif
 #if defined(PULSE_IN_GPIO_Port) && defined(PULSE_IN_Pin)
     prv_restore_gpio_input(PULSE_IN_GPIO_Port, PULSE_IN_Pin, GPIO_MODE_IT_FALLING, GPIO_PULLUP);
+#endif
+#if defined(ADC_CS_GPIO_Port) && defined(ADC_CS_Pin)
+    prv_restore_gpio_output(ADC_CS_GPIO_Port, ADC_CS_Pin, GPIO_PIN_SET);
 #endif
 }
 
@@ -250,6 +307,34 @@ static void prv_disable_adc_clock(const ADC_HandleTypeDef *hadc_ptr)
 }
 
 
+static void prv_deinit_peripherals_for_stop(void)
+{
+    prv_abort_peripheral_activity_before_deinit();
+
+#if defined(HAL_UART_MODULE_ENABLED)
+    UI_UART_DeInitLowPower();
+#endif
+
+#if defined(HAL_SPI_MODULE_ENABLED)
+    if (prv_spi_is_inited())
+    {
+        (void)HAL_SPI_DeInit(&hspi1);
+    }
+#endif
+
+#if defined(HAL_ADC_MODULE_ENABLED)
+    if (prv_adc_is_inited())
+    {
+        (void)HAL_ADC_DeInit(&hadc);
+    }
+#endif
+
+    /* MSP DeInit가 이미 clock를 내리더라도, stop 직전에는 한 번 더 강제로 차단한다. */
+    prv_disable_uart_clock(&huart1);
+    prv_disable_spi_clock(&hspi1);
+    prv_disable_adc_clock(&hadc);
+}
+
 static void prv_clear_pending_irq_sources_before_stop(void)
 {
     /* RTC Alarm A uses EXTI line 17 on STM32WL.
@@ -342,10 +427,10 @@ void UI_UART1_TxDma_DeInit(void)
 void UI_LPM_BeforeStop_DeInitPeripherals(void)
 {
     /*
-     * 주기 센서/비콘/TX 스케줄은 RTC alarm + ND 작업 이벤트로 깨어난 뒤 즉시 이어져야 한다.
-     * Stop 직전마다 UART/SPI/ADC를 전부 DeInit 하고 SPI GPIO를 analog 로 바꾸면
-     * wake 직후 경로가 너무 공격적으로 바뀌어 주기 작업이 흔들릴 수 있으므로,
-     * ND 경로에서는 외부 부하만 낮추고 MCU 내부 런타임 경로는 유지한다.
+     * 목표:
+     *  - RTC alarm 기반 timer는 그대로 유지
+     *  - Stop 전류에 영향을 주는 UART/SPI/ADC/DMA/GPIO 누설은 stop 직전에 최대한 정리
+     *  - wake 후에는 각 모듈이 Ensure/ReInit 경로로 필요한 주변장치만 다시 올린다.
      */
     UI_Time_SaveToBackupNow();
 
@@ -355,6 +440,8 @@ void UI_LPM_BeforeStop_DeInitPeripherals(void)
     }
     UI_Radio_MarkRecoverNeeded();
     prv_force_stop_pin_levels();
+    prv_deinit_peripherals_for_stop();
+    prv_configure_deinited_pins_for_stop();
 
     /* BATT_LVL은 wake source가 아니므로 stop 동안 analog/no-pull로 내려
      * floating digital input에 의한 누설 전류를 줄인다. */
@@ -364,8 +451,6 @@ void UI_LPM_BeforeStop_DeInitPeripherals(void)
 #if defined(BATT_LVL_GPIO_Port) && defined(BATT_LVL_Pin)
     prv_set_gpio_analog(BATT_LVL_GPIO_Port, BATT_LVL_Pin);
 #endif
-    prv_set_gpio_analog(BLE_TX_GPIO_Port, BLE_TX_Pin);
-    prv_set_gpio_analog(BLE_RX_GPIO_Port, BLE_RX_Pin);
 
     /* Stop 직전 소프트 상태만 정리하고, latched wake source는 비워
      * STOP 진입 직후 즉시 재기상하는 현상을 막는다. */
