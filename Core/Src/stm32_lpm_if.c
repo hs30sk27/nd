@@ -121,7 +121,7 @@ void PWR_EnterStopMode(void)
   __ISB();
 
   /* USER CODE END EnterStopMode_2 */
-  HAL_PWREx_EnterSTOP2Mode(PWR_STOPENTRY_WFI);
+  HAL_PWREx_EnterSTOP1Mode(PWR_STOPENTRY_WFI);
   /* USER CODE BEGIN EnterStopMode_3 */
 
   /* USER CODE END EnterStopMode_3 */

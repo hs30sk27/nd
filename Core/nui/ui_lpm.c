@@ -364,6 +364,8 @@ void UI_LPM_BeforeStop_DeInitPeripherals(void)
 #if defined(BATT_LVL_GPIO_Port) && defined(BATT_LVL_Pin)
     prv_set_gpio_analog(BATT_LVL_GPIO_Port, BATT_LVL_Pin);
 #endif
+    prv_set_gpio_analog(BLE_TX_GPIO_Port, BLE_TX_Pin);
+    prv_set_gpio_analog(BLE_RX_GPIO_Port, BLE_RX_Pin);
 
     /* Stop 직전 소프트 상태만 정리하고, latched wake source는 비워
      * STOP 진입 직후 즉시 재기상하는 현상을 막는다. */
