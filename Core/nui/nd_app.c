@@ -2154,6 +2154,59 @@ bool UI_Hook_OnSyncRequested(void)
     return true;
 }
 
+static bool prv_is_user_abortable_beacon_search_active(void)
+{
+    if (UI_BLE_IsActive()) {
+        return false;
+    }
+
+    if (s_boot_listen_active) {
+        return true;
+    }
+
+    if (s_sync_state == ND_SYNC_UNSYNC_SEARCH) {
+        return true;
+    }
+
+    if ((s_state == ND_STATE_RX_BEACON) &&
+        ((s_rx_reason == ND_RX_REASON_BOOT) ||
+         (s_rx_reason == ND_RX_REASON_SEARCH))) {
+        return true;
+    }
+
+    if (((s_evt_flags & (ND_EVT_BOOT_LISTEN_START | ND_EVT_BEACON_LISTEN_START)) != 0u) &&
+        (s_sync_state == ND_SYNC_BOOT_SEARCH)) {
+        return true;
+    }
+
+    return false;
+}
+
+bool ND_App_StopBeaconSearchAndEnterStop(void)
+{
+    if (!s_inited) {
+        return false;
+    }
+
+    if (!prv_is_user_abortable_beacon_search_active()) {
+        return false;
+    }
+
+    s_evt_flags &= ~(ND_EVT_BOOT_LISTEN_START |
+                     ND_EVT_BEACON_LISTEN_START |
+                     ND_EVT_SENSOR_START |
+                     ND_EVT_TX_START |
+                     ND_EVT_REMINDER_LISTEN_START |
+                     ND_EVT_TX_RECOVER |
+                     ND_EVT_SYNC_START |
+                     ND_EVT_SYNC_NOTIFY_MASK);
+
+    prv_abort_active_radio_for_ble();
+    prv_enter_unsynced_idle();
+    prv_request_stop_mode();
+    return true;
+}
+
 void ND_App_OnBleSessionStart(void)
 {
     if (!s_inited) {

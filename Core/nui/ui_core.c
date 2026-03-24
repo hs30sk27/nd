@@ -175,8 +175,15 @@ static void UI_TaskMain(void)
 
     /* 2) GPIO 이벤트 처리 (ISR에서 delay 금지이므로 여기서 처리) */
     uint32_t ev = UI_GPIO_FetchEvents();
+    bool key_abort_handled = false;
 
-    if ((ev & UI_GPIO_EVT_TEST_KEY) != 0u)
+    if ((ev & (UI_GPIO_EVT_TEST_KEY | UI_GPIO_EVT_OP_KEY)) != 0u)
+    {
+        /* boot/unsync beacon 탐색 중에는 아무 키나 탐색 중지 후 stop mode로 진입 */
+        key_abort_handled = ND_App_StopBeaconSearchAndEnterStop();
+    }
+
+    if (!key_abort_handled && ((ev & UI_GPIO_EVT_TEST_KEY) != 0u))
     {
         /* 공통: TEST_KEY = BLE ON / timeout 연장 */
         if (!UI_BLE_IsActive())
@@ -186,7 +193,7 @@ static void UI_TaskMain(void)
         UI_BLE_EnableForMs(UI_BLE_ACTIVE_MS);
     }
 
-    if ((ev & UI_GPIO_EVT_OP_KEY) != 0u)
+    if (!key_abort_handled && ((ev & UI_GPIO_EVT_OP_KEY) != 0u))
     {
         /* 공통: OP_KEY = BLE OFF */
         if (UI_BLE_IsActive())

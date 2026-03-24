@@ -17,6 +17,7 @@
 #define ND_APP_H
 
 #include <stdint.h>
+#include <stdbool.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -30,6 +31,9 @@ void ND_App_Process(void);
 /* BLE 세션 시작/종료 시 ND 런타임을 정지/재개 */
 void ND_App_OnBleSessionStart(void);
 void ND_App_OnBleSessionEnd(void);
+
+/* 비콘 탐색 중 키 입력으로 탐색을 중지하고 stop mode로 전환 */
+bool ND_App_StopBeaconSearchAndEnterStop(void);
 
 /* Radio event에서 호출 (subghz_phy_app.c USER CODE에 삽입) */
 void ND_Radio_OnTxDone(void);
