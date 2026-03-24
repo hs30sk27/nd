@@ -164,6 +164,9 @@ static void prv_configure_deinited_pins_for_stop(void)
 #if defined(__HAL_RCC_GPIOB_CLK_ENABLE)
     __HAL_RCC_GPIOB_CLK_ENABLE();
 #endif
+#if defined(__HAL_RCC_GPIOC_CLK_ENABLE)
+    __HAL_RCC_GPIOC_CLK_ENABLE();
+#endif
 
 //#if defined(BATT_LVL_GPIO_Port) && defined(BATT_LVL_Pin)
 //    prv_set_gpio_analog(BATT_LVL_GPIO_Port, BATT_LVL_Pin);
@@ -180,8 +183,29 @@ static void prv_configure_deinited_pins_for_stop(void)
 #if defined(BLE_RX_GPIO_Port) && defined(BLE_RX_Pin)
     prv_set_gpio_analog(BLE_RX_GPIO_Port, BLE_RX_Pin);
 #endif
+#if defined(ICM20948_CS_GPIO_Port) && defined(ICM20948_CS_Pin)
+    prv_set_gpio_analog(ICM20948_CS_GPIO_Port, ICM20948_CS_Pin);
+#endif
 #if defined(ADC_CS_GPIO_Port) && defined(ADC_CS_Pin)
     prv_set_gpio_analog(ADC_CS_GPIO_Port, ADC_CS_Pin);
+#endif
+#if defined(ADC_EN_GPIO_Port) && defined(ADC_EN_Pin)
+    prv_set_gpio_analog(ADC_EN_GPIO_Port, ADC_EN_Pin);
+#endif
+#if defined(BT_EN_GPIO_Port) && defined(BT_EN_Pin)
+    prv_set_gpio_analog(BT_EN_GPIO_Port, BT_EN_Pin);
+#endif
+#if defined(LED0_GPIO_Port) && defined(LED0_Pin)
+    prv_set_gpio_analog(LED0_GPIO_Port, LED0_Pin);
+#endif
+#if defined(LED1_GPIO_Port) && defined(LED1_Pin)
+    prv_set_gpio_analog(LED1_GPIO_Port, LED1_Pin);
+#endif
+#if defined(RF_TXEN_GPIO_Port) && defined(RF_TXEN_Pin)
+    prv_set_gpio_analog(RF_TXEN_GPIO_Port, RF_TXEN_Pin);
+#endif
+#if defined(RF_RXEN_GPIO_Port) && defined(RF_RXEN_Pin)
+    prv_set_gpio_analog(RF_RXEN_GPIO_Port, RF_RXEN_Pin);
 #endif
 #if defined(GPIOB)
     prv_set_gpio_analog(GPIOB, GPIO_PIN_3 | GPIO_PIN_4 | GPIO_PIN_5);
@@ -196,6 +220,9 @@ static void prv_restore_pins_after_stop(void)
 #if defined(__HAL_RCC_GPIOB_CLK_ENABLE)
     __HAL_RCC_GPIOB_CLK_ENABLE();
 #endif
+#if defined(__HAL_RCC_GPIOC_CLK_ENABLE)
+    __HAL_RCC_GPIOC_CLK_ENABLE();
+#endif
 
 #if defined(BATT_LVL_GPIO_Port) && defined(BATT_LVL_Pin)
     prv_restore_gpio_input(BATT_LVL_GPIO_Port, BATT_LVL_Pin, GPIO_MODE_INPUT, GPIO_PULLUP);
@@ -206,8 +233,29 @@ static void prv_restore_pins_after_stop(void)
 #if defined(PULSE_IN_GPIO_Port) && defined(PULSE_IN_Pin)
     prv_restore_gpio_input(PULSE_IN_GPIO_Port, PULSE_IN_Pin, GPIO_MODE_IT_FALLING, GPIO_PULLUP);
 #endif
+#if defined(ICM20948_CS_GPIO_Port) && defined(ICM20948_CS_Pin)
+    prv_restore_gpio_output(ICM20948_CS_GPIO_Port, ICM20948_CS_Pin, GPIO_PIN_SET);
+#endif
 #if defined(ADC_CS_GPIO_Port) && defined(ADC_CS_Pin)
     prv_restore_gpio_output(ADC_CS_GPIO_Port, ADC_CS_Pin, GPIO_PIN_SET);
+#endif
+#if defined(ADC_EN_GPIO_Port) && defined(ADC_EN_Pin)
+    prv_restore_gpio_output(ADC_EN_GPIO_Port, ADC_EN_Pin, GPIO_PIN_RESET);
+#endif
+#if defined(BT_EN_GPIO_Port) && defined(BT_EN_Pin)
+    prv_restore_gpio_output(BT_EN_GPIO_Port, BT_EN_Pin, GPIO_PIN_RESET);
+#endif
+#if defined(LED0_GPIO_Port) && defined(LED0_Pin)
+    prv_restore_gpio_output(LED0_GPIO_Port, LED0_Pin, GPIO_PIN_RESET);
+#endif
+#if defined(LED1_GPIO_Port) && defined(LED1_Pin)
+    prv_restore_gpio_output(LED1_GPIO_Port, LED1_Pin, GPIO_PIN_RESET);
+#endif
+#if defined(RF_TXEN_GPIO_Port) && defined(RF_TXEN_Pin)
+    prv_restore_gpio_output(RF_TXEN_GPIO_Port, RF_TXEN_Pin, GPIO_PIN_RESET);
+#endif
+#if defined(RF_RXEN_GPIO_Port) && defined(RF_RXEN_Pin)
+    prv_restore_gpio_output(RF_RXEN_GPIO_Port, RF_RXEN_Pin, GPIO_PIN_RESET);
 #endif
 }
 
