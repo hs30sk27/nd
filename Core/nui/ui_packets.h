@@ -18,7 +18,7 @@
  *  - TEMP     int8   ('C) range -50..100
  *  - BCN_CNT  uint16
  *  - X,Y,Z    uint16 each (0=invalid/test fail, valid=1..50000)
- *  - ADC      uint16      (scaled 0..49999)
+ *  - ADC      uint16      (scaled 0..59999)
  *  - PULSE    uint32
  *  - SENSOR_EN 1 byte (bit0=ICM20948, bit1=ADC, bit2=PULSE)
  *  - CRC16    2 bytes
@@ -43,7 +43,8 @@ extern "C" {
 #define UI_NODE_AXIS_VALID_MIN_U16   (1u)
 #define UI_NODE_AXIS_VALID_MAX_U16   (50000u)
 #define UI_NODE_AXIS_VALID_SPAN_U16  ((UI_NODE_AXIS_VALID_MAX_U16) - (UI_NODE_AXIS_VALID_MIN_U16))
-#define UI_NODE_ADC_SCALED_MAX_U16   (49999u)
+//#define UI_NODE_ADC_SCALED_MAX_U16   (49999u)
+#define UI_NODE_ADC_SCALED_MAX_U16   (59999u)
 #define UI_NODE_AXIS_RAW_HALF_RANGE  (16384)
 #define UI_NODE_ADC_RAW_MAX          (65535u)
 
