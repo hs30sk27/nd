@@ -312,6 +312,32 @@ void UI_BLE_ExtendMs(uint32_t duration_ms)
     UI_BLE_EnableForMs(duration_ms);
 }
 
+bool UI_BLE_GetRemainingMs(uint32_t* remaining_ms)
+{
+    uint32_t remain_ms = 0u;
+
+    if (remaining_ms == NULL) {
+        return false;
+    }
+
+    *remaining_ms = 0u;
+
+    if (!s_ble_active) {
+        return false;
+    }
+
+    if (UTIL_TIMER_IsRunning(&s_tmr_timeout) == 0u) {
+        return false;
+    }
+
+    if (UTIL_TIMER_GetRemainingTime(&s_tmr_timeout, &remain_ms) != UTIL_TIMER_OK) {
+        return false;
+    }
+
+    *remaining_ms = remain_ms;
+    return true;
+}
+
 void UI_BLE_Disable(void)
 {
     if (!s_ble_active) {

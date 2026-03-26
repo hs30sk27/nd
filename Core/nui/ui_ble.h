@@ -27,6 +27,8 @@ void UI_BLE_Process(void);
 
 void UI_BLE_EnableForMs(uint32_t duration_ms);
 void UI_BLE_ExtendMs(uint32_t duration_ms);
+/* 현재 BLE timeout 남은 시간 조회 (sync 성공 후 복원용) */
+bool UI_BLE_GetRemainingMs(uint32_t* remaining_ms);
 void UI_BLE_Disable(void);
 
 bool UI_BLE_IsActive(void);

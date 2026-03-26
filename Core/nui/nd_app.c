@@ -94,6 +94,9 @@ static uint8_t s_node_tx_payload[UI_NODE_PAYLOAD_LEN];
 static uint8_t s_sync_req_tx_payload[UI_NODE_PAYLOAD_LEN];
 static bool s_sync_cmd_active = false;
 static bool s_sync_tx_wait_beacon_pending = false;
+static bool s_sync_ble_timeout_saved_valid = false;
+static uint32_t s_sync_ble_timeout_saved_ms = 0u;
+static bool s_ble_runtime_resume_allowed = false;
 static uint8_t s_unsync_backoff_idx = 0u;
 static uint32_t s_last_sensor_slot_id = 0xFFFFFFFFu;
 static uint32_t s_last_tx_slot_id = 0xFFFFFFFFu;
@@ -246,6 +249,9 @@ static void prv_enter_unsynced_idle(void);
 static void prv_resume_schedule_after_boot_search(void);
 static void prv_abort_active_radio_for_ble(void);
 static bool prv_try_enter_holdover_from_backup(void);
+static void prv_begin_boot_listen(void);
+static bool prv_should_pause_runtime_for_ble(void);
+static void prv_resume_runtime_after_sync_completion(void);
 
 static bool s_boot_listen_active = false;
 static bool s_boot_listen_stop_after_ble = false;
@@ -279,6 +285,82 @@ static void prv_hold_ble_for_sync(void)
     }
 
     UI_BLE_EnsureSerialReady();
+}
+
+static void prv_clear_saved_ble_timeout_for_sync(void)
+{
+    s_sync_ble_timeout_saved_valid = false;
+    s_sync_ble_timeout_saved_ms = 0u;
+}
+
+static void prv_hold_ble_timeout_for_sync(void)
+{
+    uint32_t remain_ms = 0u;
+    uint32_t hold_ms = ND_SYNC_CMD_BLE_HOLD_MS;
+
+    prv_clear_saved_ble_timeout_for_sync();
+
+    if (!UI_BLE_IsActive()) {
+        return;
+    }
+
+    if (UI_BLE_GetRemainingMs(&remain_ms) && (remain_ms > 0u)) {
+        s_sync_ble_timeout_saved_valid = true;
+        s_sync_ble_timeout_saved_ms = remain_ms;
+        if (remain_ms > hold_ms) {
+            hold_ms = remain_ms;
+        }
+    }
+
+    UI_BLE_ExtendMs(hold_ms);
+}
+
+static void prv_restore_ble_timeout_after_sync_success(void)
+{
+    if (UI_BLE_IsActive() &&
+        s_sync_ble_timeout_saved_valid &&
+        (s_sync_ble_timeout_saved_ms > 0u)) {
+        UI_BLE_ExtendMs(s_sync_ble_timeout_saved_ms);
+    }
+
+    prv_clear_saved_ble_timeout_for_sync();
+}
+
+static bool prv_should_pause_runtime_for_ble(void)
+{
+    return UI_BLE_IsActive() && !s_ble_runtime_resume_allowed;
+}
+
+static void prv_resume_runtime_after_sync_completion(void)
+{
+    s_boot_listen_stop_after_ble = false;
+
+    if (!UI_BLE_IsActive()) {
+        s_ble_runtime_resume_allowed = false;
+        return;
+    }
+
+    s_ble_runtime_resume_allowed = true;
+
+    if (s_state != ND_STATE_IDLE) {
+        return;
+    }
+
+    if (s_sync_state == ND_SYNC_UNSYNC_SEARCH) {
+        prv_enter_unsync_search();
+        return;
+    }
+
+    if (s_sync_state == ND_SYNC_BOOT_SEARCH) {
+        if (UI_Time_IsValid()) {
+            prv_resume_schedule_after_boot_search();
+        } else {
+            prv_begin_boot_listen();
+        }
+        return;
+    }
+
+    prv_continue_boot_listen_or_schedule();
 }
 
 static void prv_tmr_boot_led_blink_cb(void *context);
@@ -1672,7 +1754,7 @@ static void prv_enter_unsync_search(void)
         s_beacon_miss_count = 1u;
     }
     (void)UTIL_TIMER_Stop(&s_tmr_reminder_sched);
-    if (UI_BLE_IsActive()) {
+    if (prv_should_pause_runtime_for_ble()) {
         prv_clear_pending_runtime_rx_events();
         prv_stop_sensor_and_tx_timers();
         return;
@@ -1921,7 +2003,7 @@ static bool prv_restart_current_rx_window(void)
 
 static void prv_continue_boot_listen_or_schedule(void)
 {
-    if (UI_BLE_IsActive()) {
+    if (prv_should_pause_runtime_for_ble()) {
         prv_clear_pending_runtime_rx_events();
         prv_stop_sensor_and_tx_timers();
         return;
@@ -2150,7 +2232,9 @@ bool UI_Hook_OnSyncRequested(void)
     }
 
     if (UI_BLE_IsActive()) {
-        UI_BLE_ExtendMs(ND_SYNC_CMD_BLE_HOLD_MS);
+        prv_hold_ble_timeout_for_sync();
+    } else {
+        prv_clear_saved_ble_timeout_for_sync();
     }
     prv_hold_ble_for_sync();
     s_evt_flags |= ND_EVT_SYNC_START;
@@ -2242,6 +2326,8 @@ void ND_App_OnBleSessionStart(void)
     s_sensor_ready = false;
     s_sync_cmd_active = false;
     s_sync_tx_wait_beacon_pending = false;
+    s_ble_runtime_resume_allowed = false;
+    prv_clear_saved_ble_timeout_for_sync();
 }
 
 void ND_App_OnBleSessionEnd(void)
@@ -2267,6 +2353,8 @@ void ND_App_OnBleSessionEnd(void)
     s_sensor_ready = false;
     s_sync_cmd_active = false;
     s_sync_tx_wait_beacon_pending = false;
+    s_ble_runtime_resume_allowed = false;
+    prv_clear_saved_ble_timeout_for_sync();
 
     if (s_boot_listen_stop_after_ble) {
         s_boot_listen_stop_after_ble = false;
@@ -2302,14 +2390,20 @@ void ND_App_Process(void)
         if ((ev & ND_EVT_SYNC_DONE_NOTIFY) != 0u) {
             s_evt_flags &= ~ND_EVT_SYNC_DONE_NOTIFY;
             prv_send_sync_status(ND_SYNC_NOTIFY_DONE_STR);
+            prv_restore_ble_timeout_after_sync_success();
+            prv_resume_runtime_after_sync_completion();
         }
         if ((ev & ND_EVT_SYNC_TIMEOUT_NOTIFY) != 0u) {
             s_evt_flags &= ~ND_EVT_SYNC_TIMEOUT_NOTIFY;
             prv_send_sync_status(ND_SYNC_NOTIFY_TIMEOUT_STR);
+            prv_clear_saved_ble_timeout_for_sync();
+            prv_resume_runtime_after_sync_completion();
         }
         if ((ev & ND_EVT_SYNC_TX_FAIL_NOTIFY) != 0u) {
             s_evt_flags &= ~ND_EVT_SYNC_TX_FAIL_NOTIFY;
             prv_send_sync_status(ND_SYNC_NOTIFY_TX_FAIL_STR);
+            prv_clear_saved_ble_timeout_for_sync();
+            prv_resume_runtime_after_sync_completion();
         }
         ev = s_evt_flags;
     }
@@ -2365,6 +2459,8 @@ void ND_App_Process(void)
         s_evt_flags &= ~ND_EVT_SYNC_START;
         if (!prv_start_sync_request_tx()) {
             prv_send_sync_status(ND_SYNC_NOTIFY_TX_FAIL_STR);
+            prv_clear_saved_ble_timeout_for_sync();
+            prv_resume_runtime_after_sync_completion();
         }
         prv_reschedule_main_if_pending();
         return;
@@ -2625,6 +2721,7 @@ void ND_App_Init(void)
     s_rx_reason = ND_RX_REASON_NONE;
     s_sync_cmd_active = false;
     s_sync_tx_wait_beacon_pending = false;
+    s_ble_runtime_resume_allowed = false;
     s_unsync_backoff_idx = 0u;
     s_inited = true;
 
