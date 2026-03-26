@@ -170,10 +170,10 @@
 #define UI_GW_RX_PERIOD_S_NORMAL     (3600u)   /* 1시간 */
 #define UI_GW_RX_START_OFFSET_S      (60u)     /* 01분00초 (= 60초) */
 #define UI_GW_TEST_RX_START_S        (30u)     /* 테스트 모드: 30초에 수신 준비 */
-#define UI_SLOT_DURATION_MS          (2000u)   /* 노드별 2초 슬롯 */
+#define UI_SLOT_DURATION_MS          (3000u)   /* 노드별 3초 슬롯: 중간 슬롯 누락 방지 여유 확대 */
 
 /* Node 전원 인가 후 Beacon 수신 대기 시간 */
-#define UI_ND_BOOT_LISTEN_MS         (310000u) /* 5분 10초 */
+#define UI_ND_BOOT_LISTEN_MS         (360000u) /* 6분: 5분 비콘 경계 + 여유 */
 
 /* Node 센서 체크 시작 시각 */
 #define UI_ND_SENSOR_START_S_NORMAL  (6u)      /* 00분06초 */

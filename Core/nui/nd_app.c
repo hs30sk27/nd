@@ -105,7 +105,7 @@ static bool s_test_session_active = false;
 static uint8_t s_test_session_restore_value = 0u;
 static char s_test_session_restore_unit = 'H';
 
-#define ND_TX_IN_SLOT_DELAY_MS            (150u)
+#define ND_TX_IN_SLOT_DELAY_MS            (40u)
 #define ND_TX_SLOT0_EXTRA_DELAY_MS        (0u)
 #define ND_TX_DUE_LATE_GRACE_CENTI        ((UI_SLOT_DURATION_MS / 10u) - 10u)
 #define ND_TX_RETRY_DELAY_MS              (20u)
