@@ -19,10 +19,12 @@ static volatile uint32_t s_evt_flags = 0;
 #define BLE_EVT_TIMEOUT   (1u << 0)
 #define BLE_EVT_STOP_REQ  (1u << 1)
 #define BLE_EVT_UART_INIT (1u << 2)
+#define BLE_EVT_NAME_APPLY (1u << 3)
 
 static bool s_ble_active = false;
 static bool s_led_on = false;
 static bool s_uart_init_pending = false;
+static bool s_ble_name_apply_pending = false;
 static uint32_t s_uart_ready_deadline_ms = 0;
 static uint32_t s_bt_on_tick_ms = 0;
 
@@ -32,11 +34,54 @@ static UTIL_TIMER_Object_t s_tmr_uart_init;
 
 static char s_ble_name_cmd_buf[48];
 static char s_ble_name_cmd_alt_buf[48];
+static char s_ble_name_pending_buf[48];
 
 #define UI_BLE_NAMECFG_PWR_OFF_MS      300u
 #define UI_BLE_NAMECFG_BOOT_SETTLE_MS 1200u
 #define UI_BLE_NAMECFG_CMD_GAP_MS      120u
 #define UI_BLE_NAMECFG_RESTART_OFF_MS 300u
+
+static bool prv_apply_device_name_now(const char* name_ascii)
+{
+#if UI_HAVE_BT_EN
+    if ((name_ascii == NULL) || (*name_ascii == '\0')) {
+        return false;
+    }
+
+    /*
+     * 요구 순서:
+     *   BLE OFF -> delay -> BLE ON -> delay -> 이름 변경 -> delay -> BLE OFF -> delay -> BLE ON
+     */
+    UI_BLE_Disable();
+    HAL_Delay(UI_BLE_NAMECFG_PWR_OFF_MS);
+
+    UI_BLE_EnableForMs(UI_BLE_ACTIVE_MS);
+    UI_BLE_EnsureSerialReady();
+    HAL_Delay(UI_BLE_NAMECFG_BOOT_SETTLE_MS);
+
+    UI_UART_SendString("AT\r\n");
+    HAL_Delay(UI_BLE_NAMECFG_CMD_GAP_MS);
+    UI_UART_SendString("AT\r\n");
+    HAL_Delay(UI_BLE_NAMECFG_CMD_GAP_MS);
+
+    (void)snprintf(s_ble_name_cmd_buf, sizeof(s_ble_name_cmd_buf), "AT+NAME%s\r\n", name_ascii);
+    UI_UART_SendString(s_ble_name_cmd_buf);
+    HAL_Delay(UI_BLE_NAMECFG_CMD_GAP_MS);
+
+    (void)snprintf(s_ble_name_cmd_alt_buf, sizeof(s_ble_name_cmd_alt_buf), "AT+NAME=%s\r\n", name_ascii);
+    UI_UART_SendString(s_ble_name_cmd_alt_buf);
+    HAL_Delay(UI_BLE_NAMECFG_CMD_GAP_MS);
+
+    UI_BLE_Disable();
+    HAL_Delay(UI_BLE_NAMECFG_RESTART_OFF_MS);
+
+    UI_BLE_EnableForMs(UI_BLE_ACTIVE_MS);
+    return true;
+#else
+    (void)name_ascii;
+    return false;
+#endif
+}
 
 static void prv_hw_set_bt(bool on)
 {
@@ -158,6 +203,16 @@ void UI_BLE_Process(void)
             prv_serial_init_after_ble_delay();
         }
     }
+
+    if ((ev & BLE_EVT_NAME_APPLY) != 0u) {
+        if (s_ble_name_apply_pending) {
+            char name_buf[sizeof(s_ble_name_pending_buf)];
+            (void)snprintf(name_buf, sizeof(name_buf), "%s", s_ble_name_pending_buf);
+            s_ble_name_apply_pending = false;
+            s_ble_name_pending_buf[0] = '\0';
+            (void)prv_apply_device_name_now(name_buf);
+        }
+    }
 }
 
 static void UI_BLE_Task(void)
@@ -182,9 +237,11 @@ void UI_BLE_Init(void)
     s_ble_active = false;
     s_led_on = false;
     s_uart_init_pending = false;
+    s_ble_name_apply_pending = false;
     s_uart_ready_deadline_ms = 0u;
     s_bt_on_tick_ms = 0u;
     s_evt_flags = 0u;
+    s_ble_name_pending_buf[0] = '\0';
     prv_hw_set_bt(false);
     prv_hw_set_led0(false);
 }
@@ -231,33 +288,14 @@ bool UI_BLE_ApplyDeviceName(const char* name_ascii)
     }
 
     /*
-     * 요구 순서:
-     *   BLE OFF -> delay -> BLE ON -> delay -> 이름 변경 -> delay -> BLE OFF -> delay -> BLE ON
+     * 이름 변경은 현재 수신 중인 BLE 프레임 처리와 충돌하지 않게
+     * BLE task로 defer해서 수행한다.
      */
-    UI_BLE_Disable();
-    HAL_Delay(UI_BLE_NAMECFG_PWR_OFF_MS);
-
-    UI_BLE_EnableForMs(UI_BLE_ACTIVE_MS);
-    UI_BLE_EnsureSerialReady();
-    HAL_Delay(UI_BLE_NAMECFG_BOOT_SETTLE_MS);
-
-    UI_UART_SendString("AT\r\n");
-    HAL_Delay(UI_BLE_NAMECFG_CMD_GAP_MS);
-    UI_UART_SendString("AT\r\n");
-    HAL_Delay(UI_BLE_NAMECFG_CMD_GAP_MS);
-
-    (void)snprintf(s_ble_name_cmd_buf, sizeof(s_ble_name_cmd_buf), "AT+NAME%s\r\n", name_ascii);
-    UI_UART_SendString(s_ble_name_cmd_buf);
-    HAL_Delay(UI_BLE_NAMECFG_CMD_GAP_MS);
-
-    (void)snprintf(s_ble_name_cmd_alt_buf, sizeof(s_ble_name_cmd_alt_buf), "AT+NAME=%s\r\n", name_ascii);
-    UI_UART_SendString(s_ble_name_cmd_alt_buf);
-    HAL_Delay(UI_BLE_NAMECFG_CMD_GAP_MS);
-
-    UI_BLE_Disable();
-    HAL_Delay(UI_BLE_NAMECFG_RESTART_OFF_MS);
-
-    UI_BLE_EnableForMs(UI_BLE_ACTIVE_MS);
+    (void)snprintf(s_ble_name_pending_buf, sizeof(s_ble_name_pending_buf), "%s", name_ascii);
+    s_ble_name_pending_buf[sizeof(s_ble_name_pending_buf) - 1u] = '\0';
+    s_ble_name_apply_pending = true;
+    s_evt_flags |= BLE_EVT_NAME_APPLY;
+    UTIL_SEQ_SetTask(UI_TASK_BIT_BLE, 0);
     return true;
 #else
     (void)name_ascii;
@@ -320,8 +358,10 @@ void UI_BLE_ClearFlagsBeforeStop(void)
     s_ble_active = false;
     s_led_on = false;
     s_uart_init_pending = false;
+    s_ble_name_apply_pending = false;
     s_uart_ready_deadline_ms = 0u;
     s_bt_on_tick_ms = 0u;
+    s_ble_name_pending_buf[0] = '\0';
     prv_hw_set_led0(false);
     prv_hw_set_bt(false);
 #if (UI_UART_DEINIT_WHEN_BLE_OFF == 1u)

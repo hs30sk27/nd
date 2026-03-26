@@ -130,10 +130,11 @@ static char s_test_session_restore_unit = 'H';
 #define ND_PHASE_WALK_RX_WINDOW_MS        (1500u)
 #define ND_SEARCH_RX_WINDOW_MS            (2000u)
 #define ND_SYNC_CMD_RX_WINDOW_MS          (5000u)
+#define ND_SYNC_CMD_BLE_HOLD_MS           (15000u)
 #define ND_SYNC_NOTIFY_TX_STR             ""
-#define ND_SYNC_NOTIFY_DONE_STR           "SYNC OK\r\n"
-#define ND_SYNC_NOTIFY_TIMEOUT_STR        "SYNC ERROR\r\n"
-#define ND_SYNC_NOTIFY_TX_FAIL_STR        "SYNC ERROR\r\n"
+#define ND_SYNC_NOTIFY_DONE_STR           "OK\r\n"
+#define ND_SYNC_NOTIFY_TIMEOUT_STR        "FAIL\r\n"
+#define ND_SYNC_NOTIFY_TX_FAIL_STR        "FAIL\r\n"
 #define ND_SEARCH_SCAN_INTERVAL_MS_BASE   (90000u)
 #define ND_SEARCH_SCAN_INTERVAL_MS_JITTER (30000u)
 #define ND_SYNC_BKP_MAGIC                 (0x4E445359u)
@@ -2148,6 +2149,9 @@ bool UI_Hook_OnSyncRequested(void)
         return false;
     }
 
+    if (UI_BLE_IsActive()) {
+        UI_BLE_ExtendMs(ND_SYNC_CMD_BLE_HOLD_MS);
+    }
     prv_hold_ble_for_sync();
     s_evt_flags |= ND_EVT_SYNC_START;
     UTIL_SEQ_SetTask(UI_TASK_BIT_ND_MAIN, 0);

@@ -30,6 +30,11 @@ static void prv_send_error(void)
     UI_UART_SendString("ERROR\r\n");
 }
 
+static void prv_send_fail(void)
+{
+    UI_UART_SendString("FAIL\r\n");
+}
+
 static const char* prv_skip_spaces(const char* s)
 {
     while (s && *s && isspace((unsigned char)*s)) { s++; }
@@ -381,13 +386,9 @@ void UI_Cmd_ProcessLine(const char* line_in)
     /* -------------------- SYNC --------------------------- */
     if (prv_cmd_equals_relaxed(p, "SYNC"))
     {
-        if (UI_Hook_OnSyncRequested())
+        if (!UI_Hook_OnSyncRequested())
         {
-            prv_send_ok();
-        }
-        else
-        {
-            prv_send_error();
+            prv_send_fail();
         }
         return;
     }
