@@ -77,6 +77,8 @@ static volatile uint32_t s_evt_flags = 0;
 #define ND_EVT_SYNC_DONE_NOTIFY        (1u << 10)
 #define ND_EVT_SYNC_TIMEOUT_NOTIFY     (1u << 11)
 #define ND_EVT_SYNC_TX_FAIL_NOTIFY     (1u << 12)
+#define ND_EVT_RADIO_TX_DONE_LED_PULSE (1u << 13)
+#define ND_EVT_RADIO_RX_DONE_LED_PULSE (1u << 14)
 #define ND_EVT_SYNC_NOTIFY_MASK        (ND_EVT_SYNC_TX_NOTIFY | ND_EVT_SYNC_DONE_NOTIFY | ND_EVT_SYNC_TIMEOUT_NOTIFY | ND_EVT_SYNC_TX_FAIL_NOTIFY)
 
 static bool s_beacon_ok = false;
@@ -114,6 +116,7 @@ static char s_test_session_restore_unit = 'H';
 #define ND_BOOT_RX_WINDOW_MS              (6000u)
 #define ND_BOOT_BEACON_ON_MS              (20u)
 #define ND_BOOT_BEACON_OFF_MS             (480u)
+#define ND_RADIO_LED_PULSE_MS            (50u)
 #define ND_BEACON_EARLY_WAKE_MS           (1000u)
 #define ND_BEACON_EARLY_WAKE_MS_2M        (500u)
 #define ND_BEACON_EARLY_WAKE_STEP_MS      (500u)
@@ -470,6 +473,17 @@ static void prv_led1_pulse_10ms(void)
     (void)UTIL_TIMER_Stop(&s_tmr_led1_pulse);
     (void)UTIL_TIMER_SetPeriod(&s_tmr_led1_pulse, 10u);
     (void)UTIL_TIMER_Start(&s_tmr_led1_pulse);
+}
+
+static void prv_led1_blocking_pulse_ms(uint32_t pulse_ms)
+{
+    if (pulse_ms == 0u) {
+        pulse_ms = 1u;
+    }
+
+    prv_led1(true);
+    HAL_Delay(pulse_ms);
+    prv_led1(false);
 }
 
 static const char* prv_batt_text_from_level(uint8_t batt_lvl)
@@ -2287,6 +2301,8 @@ bool ND_App_StopBeaconSearchAndEnterStop(void)
                      ND_EVT_REMINDER_LISTEN_START |
                      ND_EVT_TX_RECOVER |
                      ND_EVT_SYNC_START |
+                     ND_EVT_RADIO_TX_DONE_LED_PULSE |
+                     ND_EVT_RADIO_RX_DONE_LED_PULSE |
                      ND_EVT_SYNC_NOTIFY_MASK);
 
     prv_abort_active_radio_for_ble();
@@ -2322,6 +2338,8 @@ void ND_App_OnBleSessionStart(void)
                      ND_EVT_TX_RECOVER |
                      ND_EVT_SYNC_START |
                      ND_EVT_ENTER_STOP |
+                     ND_EVT_RADIO_TX_DONE_LED_PULSE |
+                     ND_EVT_RADIO_RX_DONE_LED_PULSE |
                      ND_EVT_SYNC_NOTIFY_MASK);
     s_sensor_ready = false;
     s_sync_cmd_active = false;
@@ -2349,6 +2367,8 @@ void ND_App_OnBleSessionEnd(void)
                      ND_EVT_REMINDER_LISTEN_START |
                      ND_EVT_TX_RECOVER |
                      ND_EVT_SYNC_START |
+                     ND_EVT_RADIO_TX_DONE_LED_PULSE |
+                     ND_EVT_RADIO_RX_DONE_LED_PULSE |
                      ND_EVT_SYNC_NOTIFY_MASK);
     s_sensor_ready = false;
     s_sync_cmd_active = false;
@@ -2381,6 +2401,18 @@ void ND_App_Process(void)
     UI_BLE_Process();
 
     uint32_t ev = s_evt_flags;
+
+    if ((ev & ND_EVT_RADIO_TX_DONE_LED_PULSE) != 0u) {
+        s_evt_flags &= ~ND_EVT_RADIO_TX_DONE_LED_PULSE;
+        prv_led1_blocking_pulse_ms(ND_RADIO_LED_PULSE_MS);
+        ev = s_evt_flags;
+    }
+
+    if ((ev & ND_EVT_RADIO_RX_DONE_LED_PULSE) != 0u) {
+        s_evt_flags &= ~ND_EVT_RADIO_RX_DONE_LED_PULSE;
+        prv_led1_blocking_pulse_ms(ND_RADIO_LED_PULSE_MS);
+        ev = s_evt_flags;
+    }
 
     if ((ev & ND_EVT_SYNC_NOTIFY_MASK) != 0u) {
         if ((ev & ND_EVT_SYNC_TX_NOTIFY) != 0u) {
@@ -2739,6 +2771,7 @@ void ND_Radio_OnTxDone(void)
         s_tx_inflight_slot_id = 0xFFFFFFFFu;
         UI_LPM_UnlockStop();
         s_sync_tx_wait_beacon_pending = false;
+        s_evt_flags |= ND_EVT_RADIO_TX_DONE_LED_PULSE;
         prv_hold_ble_for_sync();
         s_evt_flags |= ND_EVT_SYNC_TX_NOTIFY;
         if (!prv_start_beacon_rx(ND_SYNC_CMD_RX_WINDOW_MS, ND_RX_REASON_SYNC)) {
@@ -2749,6 +2782,7 @@ void ND_Radio_OnTxDone(void)
         UTIL_SEQ_SetTask(UI_TASK_BIT_ND_MAIN, 0);
         return;
     }
+    s_evt_flags |= ND_EVT_RADIO_TX_DONE_LED_PULSE;
     prv_force_tx_recovery(true);
     UTIL_SEQ_SetTask(UI_TASK_BIT_ND_MAIN, 0);
 }
@@ -2853,6 +2887,7 @@ void ND_Radio_OnRxDone(uint8_t *payload, uint16_t size, int16_t rssi, int8_t snr
 
     beacon_epoch_centi = ((uint64_t)UI_Time_Epoch2016_FromCalendar(&beacon.dt) * 100u) +
                          (uint64_t)ND_BEACON_RX_TIME_CORR_CENTI;
+    s_evt_flags |= ND_EVT_RADIO_RX_DONE_LED_PULSE;
     UI_Time_SetEpochCenti2016(beacon_epoch_centi);
     prv_apply_setting_ascii(beacon.setting_ascii);
     s_beacon_cnt++;
@@ -2863,6 +2898,7 @@ void ND_Radio_OnRxDone(uint8_t *payload, uint16_t size, int16_t rssi, int8_t snr
         UTIL_SEQ_SetTask(UI_TASK_BIT_ND_MAIN, 0);
     }
     prv_continue_boot_listen_or_schedule();
+    UTIL_SEQ_SetTask(UI_TASK_BIT_ND_MAIN, 0);
     if (s_rx_reason == ND_RX_REASON_BOOT) {
         prv_boot_led_blink_stop();
         prv_request_stop_mode();
