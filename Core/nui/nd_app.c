@@ -93,7 +93,9 @@ static ND_SensorResult_t s_last_sensor;
 static bool s_sensor_ready = false;
 static bool s_last_sensor_valid = false;
 static uint8_t s_node_tx_payload[UI_NODE_PAYLOAD_LEN];
+static uint8_t s_node_tx_payload_len = 0u;
 static uint8_t s_sync_req_tx_payload[UI_NODE_PAYLOAD_LEN];
+static uint8_t s_sync_req_tx_payload_len = 0u;
 static bool s_sync_cmd_active = false;
 static bool s_sync_tx_wait_beacon_pending = false;
 static bool s_sync_ble_timeout_saved_valid = false;
@@ -742,11 +744,13 @@ static bool prv_build_verified_node_payload(const UI_Config_t* cfg,
                                             const ND_SensorResult_t* sensor,
                                             uint16_t beacon_cnt,
                                             uint8_t out_payload[UI_NODE_PAYLOAD_LEN],
+                                            uint8_t* out_payload_len,
                                             UI_NodeData_t* out_nd)
 {
     UI_NodeData_t expected;
     UI_NodeData_t parsed;
     uint8_t cfg_mask;
+    uint8_t payload_len;
 
     if ((cfg == NULL) || (sensor == NULL) || (out_payload == NULL)) {
         return false;
@@ -756,10 +760,13 @@ static bool prv_build_verified_node_payload(const UI_Config_t* cfg,
 
     prv_fill_node_data_from_sensor(&expected, cfg, sensor, beacon_cnt);
     memset(out_payload, 0, UI_NODE_PAYLOAD_LEN);
-    (void)UI_Pkt_BuildNodeData(out_payload, &expected);
+    payload_len = UI_Pkt_BuildNodeData(out_payload, &expected);
+    if ((payload_len == 0u) || (payload_len > UI_NODE_PAYLOAD_LEN)) {
+        return false;
+    }
 
     memset(&parsed, 0, sizeof(parsed));
-    if (!UI_Pkt_ParseNodeData(out_payload, UI_NODE_PAYLOAD_LEN, &parsed)) {
+    if (!UI_Pkt_ParseNodeData(out_payload, payload_len, &parsed)) {
         return false;
     }
 
@@ -771,6 +778,9 @@ static bool prv_build_verified_node_payload(const UI_Config_t* cfg,
         return false;
     }
 
+    if (out_payload_len != NULL) {
+        *out_payload_len = payload_len;
+    }
     if (out_nd != NULL) {
         *out_nd = parsed;
     }
@@ -850,10 +860,12 @@ static void prv_send_test_result_ble(const ND_SensorResult_t* r)
     UI_UART_SendString(msg);
 }
 
-static bool prv_build_sync_request_payload(uint8_t out_payload[UI_NODE_PAYLOAD_LEN])
+static bool prv_build_sync_request_payload(uint8_t out_payload[UI_NODE_PAYLOAD_LEN],
+                                           uint8_t* out_payload_len)
 {
     const UI_Config_t *cfg = UI_GetConfig();
     UI_NodeData_t nd;
+    uint8_t payload_len;
 
     if ((cfg == NULL) || (out_payload == NULL)) {
         return false;
@@ -871,7 +883,13 @@ static bool prv_build_sync_request_payload(uint8_t out_payload[UI_NODE_PAYLOAD_L
     nd.adc = UI_NODE_MEAS_UNUSED_U16;
     nd.pulse_cnt = 0xFFFFFFFFu;
     nd.sensor_en_mask = 0u;
-    (void)UI_Pkt_BuildNodeData(out_payload, &nd);
+    payload_len = UI_Pkt_BuildNodeData(out_payload, &nd);
+    if ((payload_len == 0u) || (payload_len > UI_NODE_PAYLOAD_LEN)) {
+        return false;
+    }
+    if (out_payload_len != NULL) {
+        *out_payload_len = payload_len;
+    }
     return true;
 }
 
@@ -883,7 +901,7 @@ static bool prv_start_sync_request_tx(void)
     if (s_state != ND_STATE_IDLE) {
         return false;
     }
-    if (!prv_build_sync_request_payload(s_sync_req_tx_payload)) {
+    if (!prv_build_sync_request_payload(s_sync_req_tx_payload, &s_sync_req_tx_payload_len)) {
         return false;
     }
     prv_stop_sensor_and_tx_timers();
@@ -906,7 +924,7 @@ static bool prv_start_sync_request_tx(void)
         s_sync_cmd_active = false;
         return false;
     }
-    if (!UI_Radio_PrepareTx(UI_NODE_PAYLOAD_LEN)) {
+    if ((s_sync_req_tx_payload_len == 0u) || !UI_Radio_PrepareTx(s_sync_req_tx_payload_len)) {
         UI_Radio_MarkRecoverNeeded();
         if (Radio.Sleep != NULL) {
             Radio.Sleep();
@@ -921,7 +939,7 @@ static bool prv_start_sync_request_tx(void)
     s_sync_tx_wait_beacon_pending = true;
     prv_start_tx_watchdog();
     Radio.SetChannel(UI_RF_GetBeaconFreqHz());
-    Radio.Send(s_sync_req_tx_payload, UI_NODE_PAYLOAD_LEN);
+    Radio.Send(s_sync_req_tx_payload, s_sync_req_tx_payload_len);
     return true;
 }
 
@@ -2583,6 +2601,7 @@ void ND_App_Process(void)
         bool retry_scheduled;
         bool payload_ready;
         uint8_t cfg_mask;
+        uint8_t tx_payload_len = 0u;
 
         cfg = UI_GetConfig();
         cfg_mask = (uint8_t)(cfg->sensor_en_mask & UI_SENSOR_EN_ALL);
@@ -2637,6 +2656,7 @@ void ND_App_Process(void)
                                                         &tx_sensor,
                                                         s_beacon_cnt,
                                                         s_node_tx_payload,
+                                                        &tx_payload_len,
                                                         &nd);
         if (!payload_ready) {
             if (prv_reload_sensor_snapshot_for_tx(cfg_mask, &reload_sensor)) {
@@ -2649,6 +2669,7 @@ void ND_App_Process(void)
                                                                 &reload_sensor,
                                                                 s_beacon_cnt,
                                                                 s_node_tx_payload,
+                                                                &tx_payload_len,
                                                                 &nd);
                 if (payload_ready) {
                     tx_sensor = reload_sensor;
@@ -2677,7 +2698,7 @@ void ND_App_Process(void)
             prv_reschedule_main_if_pending();
             return;
         }
-        if (!UI_Radio_PrepareTx(UI_NODE_PAYLOAD_LEN)) {
+        if ((tx_payload_len == 0u) || !UI_Radio_PrepareTx(tx_payload_len)) {
             UI_Radio_MarkRecoverNeeded();
             if (Radio.Sleep != NULL) {
                 Radio.Sleep();
@@ -2698,7 +2719,8 @@ void ND_App_Process(void)
         prv_start_tx_watchdog();
         /* GW RX는 같은 cycle/time대에 공통 data frequency(3rd arg = 0u)를 사용한다. */
         Radio.SetChannel(UI_RF_GetDataFreqHz(freq_anchor_sec, period, 0u));
-        Radio.Send(s_node_tx_payload, UI_NODE_PAYLOAD_LEN);
+        s_node_tx_payload_len = tx_payload_len;
+        Radio.Send(s_node_tx_payload, s_node_tx_payload_len);
         prv_reschedule_main_if_pending();
         return;
     }
