@@ -145,7 +145,15 @@
 #define UI_NODE_BATT_LVL_LOW         (0u)
 #define UI_NODE_BATT_LVL_NORMAL      (1u)
 #define UI_NODE_BATT_LVL_INVALID     (0xFFu)
-#define UI_NODE_BATT_LOW_THRESHOLD_X10 (33u)   /* 3.3V 미만이면 low battery */
+#define UI_NODE_BATT_LOW_THRESHOLD_X10 (33u)   /* legacy ADC threshold (GPIO batt pin board에서는 직접 판정엔 사용하지 않음) */
+
+/* Battery level GPIO polarity
+ * - 현재 보드는 BATT_LVL 입력 핀의 1/0으로 batt level을 판단한다.
+ * - 하드웨어가 active-low면 아래 값을 GPIO_PIN_RESET으로 바꾸면 된다.
+ */
+#ifndef UI_BATT_LVL_NORMAL_GPIO_STATE
+#define UI_BATT_LVL_NORMAL_GPIO_STATE (GPIO_PIN_SET)
+#endif
 #define UI_NODE_TEMP_MIN_C           ((int8_t)-50)
 #define UI_NODE_TEMP_MAX_C           ((int8_t)100)
 #define UI_NODE_TEMP_INVALID_C       ((int8_t)-128)

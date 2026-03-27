@@ -493,7 +493,7 @@ static const char* prv_batt_text_from_level(uint8_t batt_lvl)
     if (batt_lvl == UI_NODE_BATT_LVL_INVALID) {
         return "-";
     }
-    return (batt_lvl == UI_NODE_BATT_LVL_NORMAL) ? "3.4" : "LOW";
+    return (batt_lvl == UI_NODE_BATT_LVL_NORMAL) ? "3.5" : "LOW";
 }
 
 static void prv_set_invalid_sensor_result(ND_SensorResult_t* r)

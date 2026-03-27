@@ -4,11 +4,12 @@
  * Node 센서 체크 모듈
  *
  * 요구사항:
- *  1) 내부 온도(ADC): N회 측정 -> sort -> 양끝 trim 후 중간값 평균
- *  2) ICM20948: WHO_AM_I 확인 실패 시 스킵(0xFFFF 처리)
+ *  1) batt level은 ADC가 아니라 BATT_LVL GPIO 입력(1/0)으로 판정
+ *  2) 내부 온도(ADC): N회 측정 -> sort -> 양끝 trim 후 중간값 평균
+ *  3) ICM20948: WHO_AM_I 확인 실패 시 스킵(0xFFFF 처리)
  *     100회 측정 -> sort -> 양끝 20개 trim 후 중간 60개 평균
- *  3) LTC2450(외부 ADC): N회 측정 -> sort -> 양끝 trim 후 중간값 평균
- *  4) PULSE COUNT: PULSE_IN EXTI 발생 시 ++
+ *  4) LTC2450(외부 ADC): N회 측정 -> sort -> 양끝 trim 후 중간값 평균
+ *  5) PULSE COUNT: PULSE_IN EXTI 발생 시 ++
  *
  * NOTE:
  *  - 실제 하드웨어 배선/전원(ADC_EN) 조건에 맞게 딜레이/레지스터 값은 조정 가능.
@@ -27,7 +28,7 @@ extern "C" {
 
 typedef struct
 {
-    uint8_t  batt_lvl;   /* 1=normal, 0=low */
+    uint8_t  batt_lvl;   /* BATT_LVL GPIO 기반: 1=normal, 0=low */
     int8_t   temp_c;     /* -50..100'C, UI_NODE_TEMP_INVALID_C=internal invalid */
     int16_t  x;
     int16_t  y;

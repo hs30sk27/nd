@@ -402,15 +402,21 @@ static int8_t prv_apply_temp_offset_c(int8_t temp_c)
     return prv_clamp_temp_c_i16((int16_t)temp_c + (int16_t)UI_NODE_TEMP_OFFSET_C);
 }
 
-static uint16_t prv_read_vdd_x10(void)
+static bool prv_read_batt_lvl_gpio(uint8_t* out_batt_lvl)
 {
-    uint16_t vdd_mv = 0u;
-    if (!prv_read_vdd_mv_filtered(&vdd_mv)) {
-        return 0xFFFFu;
+#if defined(BATT_LVL_Pin) && defined(BATT_LVL_GPIO_Port)
+    if (out_batt_lvl == NULL) {
+        return false;
     }
 
-    /* 0.1V = 100mV */
-    return (uint16_t)((vdd_mv + 50u) / 100u);
+    *out_batt_lvl = (HAL_GPIO_ReadPin(BATT_LVL_GPIO_Port, BATT_LVL_Pin) == UI_BATT_LVL_NORMAL_GPIO_STATE)
+                  ? UI_NODE_BATT_LVL_NORMAL
+                  : UI_NODE_BATT_LVL_LOW;
+    return true;
+#else
+    (void)out_batt_lvl;
+    return false;
+#endif
 }
 
 /* -------------------------------------------------------------------------- */
@@ -566,7 +572,6 @@ bool ND_Sensors_MeasureAll(ND_SensorResult_t* out, uint8_t sensor_en_mask)
 {
     int16_t temp_x10 = (int16_t)0xFFFF;
     int8_t temp_c = UI_NODE_TEMP_INVALID_C;
-    uint16_t vdd_x10 = 0xFFFFu;
     uint16_t temp_vdd_mv = 0u;
 
     if (out == NULL) {
@@ -595,8 +600,8 @@ bool ND_Sensors_MeasureAll(ND_SensorResult_t* out, uint8_t sensor_en_mask)
     }
 
     /*
-     * 1) MCU 내부 온도 / VDD를 가장 먼저 측정한다.
-     *    이 값은 외부 센서 전원(ADC_EN)과 무관하므로, 외부 센서 측정보다 먼저 읽는 것이 맞다.
+     * 1) MCU 내부 온도는 내부 ADC로 먼저 측정한다.
+     *    batt level은 아래에서 BATT_LVL GPIO로 별도 판정한다.
      */
     if (prv_read_temp_x10_internal(&temp_x10, &temp_vdd_mv) &&
         prv_temp_x10_to_temp_c_checked(temp_x10, &temp_c)) {
@@ -607,19 +612,17 @@ bool ND_Sensors_MeasureAll(ND_SensorResult_t* out, uint8_t sensor_en_mask)
         out->temp_c = s_last_valid_temp_c;
     }
 
-    if ((temp_vdd_mv >= UI_ND_VDD_MIN_VALID_MV) && (temp_vdd_mv <= UI_ND_VDD_MAX_VALID_MV)) {
-        vdd_x10 = (uint16_t)((temp_vdd_mv + 50u) / 100u);
-    } else {
-        vdd_x10 = prv_read_vdd_x10();
-    }
+    {
+        uint8_t batt_lvl = UI_NODE_BATT_LVL_INVALID;
 
-    if (vdd_x10 != 0xFFFFu) {
-        out->batt_lvl = (vdd_x10 >= UI_NODE_BATT_LOW_THRESHOLD_X10)
-                      ? UI_NODE_BATT_LVL_NORMAL
-                      : UI_NODE_BATT_LVL_LOW;
-        s_last_valid_batt_lvl = out->batt_lvl;
-    } else if (s_last_valid_batt_lvl != UI_NODE_BATT_LVL_INVALID) {
-        out->batt_lvl = s_last_valid_batt_lvl;
+        (void)temp_vdd_mv; /* batt level은 VDD threshold가 아니라 GPIO 입력으로 판단 */
+
+        if (prv_read_batt_lvl_gpio(&batt_lvl)) {
+            out->batt_lvl = batt_lvl;
+            s_last_valid_batt_lvl = batt_lvl;
+        } else if (s_last_valid_batt_lvl != UI_NODE_BATT_LVL_INVALID) {
+            out->batt_lvl = s_last_valid_batt_lvl;
+        }
     }
 
     /* 2) ICM20948 */
