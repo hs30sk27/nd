@@ -109,6 +109,20 @@ static bool s_test_session_active = false;
 static uint8_t s_test_session_restore_value = 0u;
 static char s_test_session_restore_unit = 'H';
 
+/* Unsync search backoff is expressed as beacon-slot counts.
+ * Default 5-minute beacon period => 12/24/48/72/144/144 slots
+ * maps to 1h/2h/4h/6h/12h/12h, and after reaching 144 it keeps
+ * repeating 144-beacon intervals indefinitely. Any valid beacon
+ * reception resets the index back to the first step. */
+static const uint16_t k_unsync_backoff_beacon_count[] = {
+    12u,
+    24u,
+    48u,
+    72u,
+    144u,
+    144u,
+};
+
 #define ND_TX_IN_SLOT_DELAY_MS            (40u)
 #define ND_TX_SLOT0_EXTRA_DELAY_MS        (0u)
 #define ND_TX_DUE_LATE_GRACE_CENTI        ((UI_SLOT_DURATION_MS / 10u) - 10u)
@@ -1518,25 +1532,28 @@ static uint32_t prv_get_beacon_rx_window_ms_with_phase_scan(void)
     return window_ms;
 }
 
-static uint32_t prv_get_unsync_backoff_sec(void)
+static uint32_t prv_get_unsync_backoff_beacon_count(void)
 {
-    static const uint32_t k_unsync_backoff_sec[] = {
-        1u * 3600u,
-        2u * 3600u,
-        4u * 3600u,
-        6u * 3600u,
-        12u * 3600u,
-    };
-    uint32_t count = (uint32_t)(sizeof(k_unsync_backoff_sec) / sizeof(k_unsync_backoff_sec[0]));
+    uint32_t count = (uint32_t)(sizeof(k_unsync_backoff_beacon_count) / sizeof(k_unsync_backoff_beacon_count[0]));
     uint32_t idx = s_unsync_backoff_idx;
 
     if (count == 0u) {
-        return 12u * 3600u;
+        return 144u;
     }
     if (idx >= count) {
         idx = count - 1u;
     }
-    return k_unsync_backoff_sec[idx];
+    return (uint32_t)k_unsync_backoff_beacon_count[idx];
+}
+
+static uint32_t prv_get_unsync_backoff_sec(void)
+{
+    uint32_t beacon_interval_sec = prv_get_beacon_interval_sec();
+
+    if (beacon_interval_sec == 0u) {
+        beacon_interval_sec = UI_BEACON_PERIOD_S;
+    }
+    return prv_get_unsync_backoff_beacon_count() * beacon_interval_sec;
 }
 
 static void prv_reset_unsync_backoff(void)
@@ -1546,7 +1563,9 @@ static void prv_reset_unsync_backoff(void)
 
 static void prv_advance_unsync_backoff(void)
 {
-    if (s_unsync_backoff_idx < 4u) {
+    uint32_t count = (uint32_t)(sizeof(k_unsync_backoff_beacon_count) / sizeof(k_unsync_backoff_beacon_count[0]));
+
+    if ((count > 0u) && ((uint32_t)s_unsync_backoff_idx < (count - 1u))) {
         s_unsync_backoff_idx++;
     }
 }
